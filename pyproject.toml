@@ -1,0 +1,20 @@
+[tool.poetry]
+name = "span-monitor"
+package-mode = false
+version = "0.1.0"
+description = "A background service to log span panel energy data to a database"
+authors = ["Alex Hasha <alex@hashadatascience.com>"]
+license = "MIT"
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "~3.11"
+requests = "^2.32.3"
+python-dotenv = "^1.0.1"
+psycopg2 = "^2.9.9"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
