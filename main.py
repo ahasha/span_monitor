@@ -87,11 +87,10 @@ if __name__ == "__main__":
             if response.status_code == 200:
                 data = response.json()
                 insert_data(data, conn)
+                logger.info(f"OK {response.status_code}: {data['instantGridPowerW']} W")
             else:
-                conn.close()
-                raise requests.exceptions.HTTPError(response.text)
+                logger.error(f"BAD {response.status_code}: {response.text}")
 
-            logger.info(f"OK {response.status_code}: {data['instantGridPowerW']} W")
             time.sleep(1)  # Poll every second
     except KeyboardInterrupt:
         logger.error("Interrupt received, exiting gracefully...")

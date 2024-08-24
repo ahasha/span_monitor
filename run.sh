@@ -1,1 +1,1 @@
-cd /Users/alexhasha/repos/span_monitor && nohup poetry run python span_monitor.py &
+cd /Users/alexhasha/repos/span_monitor && caffeinate -i -s nohup poetry run python main.py &
