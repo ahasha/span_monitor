@@ -12,6 +12,8 @@ python = "~3.11"
 requests = "^2.32.3"
 python-dotenv = "^1.0.1"
 psycopg2 = "^2.9.9"
+supabase = "^2.7.3"
+ipykernel = "^6.29.5"
 
 
 [build-system]

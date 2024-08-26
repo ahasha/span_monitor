@@ -5,62 +5,83 @@ import psycopg2
 from datetime import datetime
 import time
 import logging
+import os
+from supabase import create_client, Client
+from postgrest import APIError
 
 # loglevel info, log to a file
-logging.basicConfig(filename='span.log', level=logging.INFO)
-logger = logging.getLogger(__name__)
+logging.basicConfig(
+    level=logging.INFO,
+    handlers=[
+        logging.FileHandler("span.log"),
+        logging.StreamHandler(),
+    ])
 
+logger = logging.getLogger(__name__)
 dotenv.load_dotenv()
 
 
-def insert_data(data, conn):
-    cursor = conn.cursor()
-    main_energy_insert = """
-        INSERT INTO main_energy (
-            time, relay_state, main_meter_produced_energy_wh,
-            main_meter_consumed_energy_wh, instant_grid_power_w,
-            feed_through_power_w,
-            feed_through_produced_energy_wh, feed_through_consumed_energy_wh,
-            grid_sample_start_ms, grid_sample_end_ms, dsm_grid_state,
-            dsm_state, current_run_config
-        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s);"""
+def insert_data(data: dict, now: str, supabase: Client):
+    """
+    Inserts data into the 'main_energy' and 'branch_energy' tables in Supabase.
 
-    cursor.execute(main_energy_insert,
-                   (
-                       datetime.now(),
-                       data['mainRelayState'],
-                       data['mainMeterEnergy']['producedEnergyWh'],
-                       data['mainMeterEnergy']['consumedEnergyWh'],
-                       data['instantGridPowerW'],
-                       data['feedthroughPowerW'],
-                       data['feedthroughEnergy']['producedEnergyWh'],
-                       data['feedthroughEnergy']['consumedEnergyWh'],
-                       data['gridSampleStartMs'],
-                       data['gridSampleEndMs'],
-                       data['dsmGridState'],
-                       data['dsmState'],
-                       data['currentRunConfig']
-                   ))
+    Args:
+        data (dict): A dictionary containing the data to be inserted.
+        supabase (Client): An instance of the Supabase client.
 
-    for branch in data['branches']:
-        cursor.execute("""
-            INSERT INTO branch_energy (
-                time, branch_id, relay_state, instant_power_w,
-                imported_active_energy_wh, exported_active_energy_wh,
-                measure_start_ts_ms, measure_duration_ms, is_measure_valid
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s);
-        """, (
-            datetime.now(),
-            branch['id'],
-            branch['relayState'],
-            branch['instantPowerW'],
-            branch['importedActiveEnergyWh'],
-            branch['exportedActiveEnergyWh'],
-            branch['measureStartTsMs'],
-            branch['measureDurationMs'],
-            branch['isMeasureValid']
-        ))
-    conn.commit()
+    Returns:
+        None
+    """
+
+    logger.debug("Inserting data to main_energy")
+    try:
+        response = (
+            supabase.table("main_energy")
+            .insert(
+                {
+                    "time": datetime.utcnow().isoformat(),
+                    "relay_state": data['mainRelayState'],
+                    "main_meter_produced_energy_wh": data['mainMeterEnergy']['producedEnergyWh'],
+                    "main_meter_consumed_energy_wh": data['mainMeterEnergy']['consumedEnergyWh'],
+                    "instant_grid_power_w": data['instantGridPowerW'],
+                    "feed_through_power_w": data['feedthroughPowerW'],
+                    "feed_through_produced_energy_wh": data['feedthroughEnergy']['producedEnergyWh'],
+                    "feed_through_consumed_energy_wh": data['feedthroughEnergy']['consumedEnergyWh'],
+                    "grid_sample_start_ms": data['gridSampleStartMs'],
+                    "grid_sample_end_ms": data['gridSampleEndMs'],
+                    "dsm_grid_state": data['dsmGridState'],
+                    "dsm_state": data['dsmState'],
+                    "current_run_config": data['currentRunConfig']
+                })
+            .execute()
+        )
+    except APIError as e:
+        logger.error(f"Error inserting data: {e}")
+        logger.error(data)
+
+    insert_records = [
+        {
+            "time": now,
+            "branch_id": branch['id'],
+            "relay_state": branch['relayState'],
+            "instant_power_w": branch['instantPowerW'],
+            "imported_active_energy_wh": branch['importedActiveEnergyWh'],
+            "exported_active_energy_wh": branch['exportedActiveEnergyWh'],
+            "measure_start_ts_ms": branch['measureStartTsMs'],
+            "measure_duration_ms": branch['measureDurationMs'],
+            "is_measure_valid": branch['isMeasureValid']
+        }
+        for branch in data['branches']
+    ]
+    try:
+        response = (
+            supabase.table("branch_energy")
+            .insert(insert_records)
+            .execute()
+        )
+    except APIError as e:
+        logger.error(f"Error inserting data: {e}")
+        logger.error(data)
 
 
 if __name__ == "__main__":
@@ -72,22 +93,19 @@ if __name__ == "__main__":
         "accept": "application/json",
         "Authorization": f"Bearer {span_bearer_token}"
     }
-    # TimescaleDB connection details
-    conn = psycopg2.connect(
-        dbname="energy",
-        user="postgres",  # or your PostgreSQL username
-        password="abc123",
-        host="localhost",
-        port="5432"
-    )
+    # TimescaleDB in supabase connection details
+    supabase_url: str = os.environ.get("SUPABASE_URL")
+    supabase_key: str = os.environ.get("SUPABASE_KEY")
+    supabase: Client = create_client(supabase_url, supabase_key)
 
     try:
         while True:
             response = requests.get(url, headers=headers)
             if response.status_code == 200:
                 data = response.json()
-                insert_data(data, conn)
+                now = datetime.utcnow().isoformat()
                 logger.info(f"OK {response.status_code}: {data['instantGridPowerW']} W")
+                insert_data(data, now, supabase)
             else:
                 logger.error(f"BAD {response.status_code}: {response.text}")
 
@@ -95,7 +113,6 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         logger.error("Interrupt received, exiting gracefully...")
     finally:
-        conn.close()
         logger.error("Connection closed")
 
 
