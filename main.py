@@ -3,11 +3,14 @@ import dotenv
 import os
 import psycopg2
 from datetime import datetime
+from datetime import UTC
 import time
 import logging
 import os
 from supabase import create_client, Client
 from postgrest import APIError
+import httpx
+import time
 
 # loglevel info, log to a file
 logging.basicConfig(
@@ -20,7 +23,31 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 dotenv.load_dotenv()
 
+def retry_on_connection_error(max_retries=3, backoff_in_seconds=5):
+    connection_errors = (requests.exceptions.ConnectTimeout, httpx.RemoteProtocolError)
+    def decorator(func):
+        def wrapper(*args, **kwargs):
+            retries = 0
+            while retries < max_retries:
+                try:
+                    return func(*args, **kwargs)
+                except connection_errors as e:
+                    retries += 1
+                    wait_time = retries * backoff_in_seconds
+                    logger.error(f"Attempt {retries}/{max_retries} failed: {str(e)}. Retrying in {wait_time} seconds...")
+                    time.sleep(wait_time)
+            raise RuntimeError(f"Function failed after {max_retries} attempts. Last error: {str(e)}")
+        return wrapper
+    return decorator
 
+
+@retry_on_connection_error()
+def get_span_response(url: str, headers: dict):
+    response = requests.get(url, headers=headers)
+    return response
+
+
+@retry_on_connection_error()
 def insert_data(data: dict, now: str, supabase: Client):
     """
     Inserts data into the 'main_energy' and 'branch_energy' tables in Supabase.
@@ -100,10 +127,10 @@ if __name__ == "__main__":
 
     try:
         while True:
-            response = requests.get(url, headers=headers)
+            response = get_span_response(url, headers=headers)
             if response.status_code == 200:
                 data = response.json()
-                now = datetime.utcnow().isoformat()
+                now = datetime.now(UTC).isoformat()
                 logger.info(f"OK {response.status_code}: {data['instantGridPowerW']} W")
                 insert_data(data, now, supabase)
             else:
