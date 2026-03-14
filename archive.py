@@ -11,6 +11,15 @@ from dotenv import load_dotenv
 load_dotenv()
 logger = logging.getLogger(__name__)
 
+
+def get_database_url() -> str:
+    """Return DATABASE_URL, constructing it from SUPABASE_ID + SUPABASE_PWD if not set."""
+    if url := os.environ.get("DATABASE_URL"):
+        return url
+    project_id = os.environ["SUPABASE_ID"]
+    password = os.environ["SUPABASE_PWD"]
+    return f"postgresql://postgres:{password}@db.{project_id}.supabase.co:5432/postgres"
+
 VALID_TABLES = [
     "branch_energy_hourly",
     "main_energy_hourly",
@@ -104,7 +113,7 @@ def main(output_dir: str, full: bool, tables: tuple[str, ...]) -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     output_path = Path(output_dir)
 
-    conn = psycopg2.connect(os.environ["DATABASE_URL"])
+    conn = psycopg2.connect(get_database_url())
     try:
         for table in tables:
             table_dir = output_path / table

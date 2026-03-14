@@ -9,8 +9,17 @@ load_dotenv()
 logger = logging.getLogger(__name__)
 
 
+def get_database_url() -> str:
+    """Return DATABASE_URL, constructing it from SUPABASE_ID + SUPABASE_PWD if not set."""
+    if url := os.environ.get("DATABASE_URL"):
+        return url
+    project_id = os.environ["SUPABASE_ID"]
+    password = os.environ["SUPABASE_PWD"]
+    return f"postgresql://postgres:{password}@db.{project_id}.supabase.co:5432/postgres"
+
+
 def get_connection() -> psycopg2.extensions.connection:
-    return psycopg2.connect(os.environ["DATABASE_URL"])
+    return psycopg2.connect(get_database_url())
 
 
 def print_report(conn: psycopg2.extensions.connection) -> None:
@@ -24,7 +33,7 @@ def print_report(conn: psycopg2.extensions.connection) -> None:
         cur.execute("""
             SELECT hypertable_name,
                    pg_size_pretty(extensions.hypertable_size(
-                       format('public.%%I', hypertable_name)::regclass
+                       ('public.' || quote_ident(hypertable_name))::regclass
                    )) AS total_size
             FROM timescaledb_information.hypertables
             WHERE hypertable_schema = 'public'
@@ -36,10 +45,8 @@ def print_report(conn: psycopg2.extensions.connection) -> None:
         cur.execute("""
             SELECT view_name,
                    pg_size_pretty(extensions.hypertable_size(
-                       format('%%I.%%I',
-                           materialization_hypertable_schema,
-                           materialization_hypertable_name
-                       )::regclass
+                       (quote_ident(materialization_hypertable_schema)
+                        || '.' || quote_ident(materialization_hypertable_name))::regclass
                    )) AS cagg_size
             FROM timescaledb_information.continuous_aggregates
             ORDER BY view_name
@@ -96,32 +103,33 @@ def print_report(conn: psycopg2.extensions.connection) -> None:
 
 
 def run_compression(conn: psycopg2.extensions.connection) -> None:
-    """Trigger TimescaleDB compression background jobs for raw tables."""
+    """Compress all eligible uncompressed chunks on raw tables older than 1 day."""
     with conn.cursor() as cur:
         cur.execute("""
-            SELECT j.id, j.hypertable_name
-            FROM timescaledb_information.jobs j
-            JOIN timescaledb_information.hypertables h
-              ON j.hypertable_name = h.hypertable_name
-            WHERE j.proc_name = 'policy_compression'
-              AND h.hypertable_name IN ('branch_energy', 'main_energy')
+            SELECT chunk_schema, chunk_name, hypertable_name
+            FROM timescaledb_information.chunks
+            WHERE hypertable_name IN ('branch_energy', 'main_energy')
+              AND NOT is_compressed
+              AND range_end < now() - INTERVAL '1 day'
+            ORDER BY hypertable_name, range_start
         """)
-        jobs = cur.fetchall()
+        chunks = cur.fetchall()
 
-    if not jobs:
-        logger.warning(
-            "No compression jobs found for branch_energy / main_energy. "
-            "Was the migration applied?"
-        )
+    if not chunks:
+        logger.info("No uncompressed chunks eligible for compression.")
         return
 
     with conn.cursor() as cur:
-        for job_id, table_name in jobs:
-            logger.info(f"Running compression job {job_id} for {table_name}...")
-            cur.execute("SELECT run_job(%s)", (job_id,))
+        for schema, chunk, table_name in chunks:
+            chunk_ref = f"{schema}.{chunk}"
+            logger.info(f"Compressing chunk {chunk_ref} ({table_name})...")
+            cur.execute(
+                "SELECT compress_chunk(%s::regclass)",
+                (chunk_ref,),
+            )
         conn.commit()
 
-    logger.info("Compression jobs complete.")
+    logger.info(f"Compressed {len(chunks)} chunk(s).")
 
 
 @click.command()
