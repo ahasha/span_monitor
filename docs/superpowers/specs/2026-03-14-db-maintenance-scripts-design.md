@@ -72,28 +72,31 @@ Options:
 
 ### Behavior
 
-**Incremental (default):**
-1. For each target table, check if a local parquet file exists at `{output_dir}/{table}.parquet`
-2. If it exists, use Polars to read `max(time)` from the file
-3. Query rows where `time >= max_local_time` via psycopg2 (inclusive, to catch updates to the partial last hour)
-4. Construct a Polars DataFrame from cursor results
-5. Drop any rows from the existing parquet where `time >= max_local_time`, concat the freshly fetched rows, and overwrite the file (ensures the last partial hourly bucket is always corrected on the next run)
-6. If no local file exists, treat as a fresh full download
+Each run writes a new parquet file — existing files are never modified. The full archive is loaded with `pl.scan_parquet(output_dir)`.
 
-**Note on raw tables with `--table branch_energy` / `--table main_energy`:** Incremental is supported but these tables are not intended for recurring archival (no long-term use case). The expected use case is a one-time or occasional full download (`--full`). Incremental will work correctly but may fetch large volumes per run given the 1-second granularity.
+**Incremental (default):**
+1. For each target table, glob `{output_dir}/{table}_*.parquet` to find existing archive files
+2. If any exist, use Polars to compute `max(time)` across all of them
+3. Query rows where `time > max_local_time AND time < date_trunc('hour', now())` — the upper bound ensures only complete hourly buckets are archived
+4. If no existing files, fetch all history up to `date_trunc('hour', now())`
+5. Construct a Polars DataFrame from cursor results
+6. Write to `{output_dir}/{table}_{start_date}_{end_date}.parquet` where dates are derived from the actual `min(time)` / `max(time)` of the fetched data
+7. If the query returns no rows, log and exit cleanly (already up to date)
 
 **Full (`--full`):**
-- Skip the max-timestamp check; fetch entire table history
-- Overwrite any existing parquet file
+- Skip the max-timestamp check; fetch all history up to `date_trunc('hour', now())`
+- Writes a single new file covering the full range; does not delete existing files
 
 **File layout:**
 ```
 archive/
-  branch_energy_hourly.parquet
-  main_energy_hourly.parquet
-  branch_energy.parquet          # only if --table branch_energy
-  main_energy.parquet            # only if --table main_energy
+  branch_energy_hourly_20240826_20260314.parquet   # example from first run
+  branch_energy_hourly_20260315_20260321.parquet   # example from second run
+  main_energy_hourly_20240826_20260314.parquet
+  ...
 ```
+
+**Note on raw tables:** Incremental is supported but raw tables are not intended for recurring archival. Expected use case is a one-time `--full` download. Each run may fetch large volumes at 1-second granularity.
 
 ### Notes
 
