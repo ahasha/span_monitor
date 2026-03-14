@@ -192,7 +192,9 @@ Expected: `ModuleNotFoundError: No module named 'archive'`
 **Files:**
 - Create: `archive.py`
 
-- [ ] Create `archive.py` with just the two functions under test (no CLI yet). All imports — including `click` and `psycopg2` added in Task 5 — go at the top here so the file never needs import reordering:
+- [ ] Create `archive.py` with just the two functions under test (no CLI yet). All imports — including `click` and `psycopg2` added in Task 5 — go at the top here so the file never needs import reordering.
+
+Each table gets its own subdirectory under `output_dir`. `find_max_local_time` takes the already-resolved `table_dir` (caller does `output_dir / table`). `make_filename` produces just `{start}_{end}.parquet` — no table prefix needed since the directory provides the namespace.
 
 ```python
 import logging
@@ -216,9 +218,9 @@ VALID_TABLES = [
 ]
 
 
-def find_max_local_time(output_dir: Path, table: str) -> datetime | None:
-    """Return max(time) across all parquet files for table, or None if none exist."""
-    files = sorted(output_dir.glob(f"{table}_*.parquet"))
+def find_max_local_time(table_dir: Path) -> datetime | None:
+    """Return max(time) across all parquet files in table_dir, or None if none exist."""
+    files = sorted(table_dir.glob("*.parquet"))
     if not files:
         return None
     max_time = (
@@ -229,11 +231,11 @@ def find_max_local_time(output_dir: Path, table: str) -> datetime | None:
     return max_time
 
 
-def make_filename(table: str, df: pl.DataFrame) -> str:
+def make_filename(df: pl.DataFrame) -> str:
     """Generate a dated filename from min/max time of fetched data."""
     min_date = df["time"].min().strftime("%Y%m%d")
     max_date = df["time"].max().strftime("%Y%m%d")
-    return f"{table}_{min_date}_{max_date}.parquet"
+    return f"{min_date}_{max_date}.parquet"
 ```
 
 - [ ] Run tests and confirm they pass:
@@ -260,7 +262,9 @@ EOF
 **Files:**
 - Modify: `archive.py`
 
-- [ ] Add `fetch_table` and the Click CLI to `archive.py`. Append below the existing functions (imports are already at the top from Task 4):
+- [ ] Add `fetch_table` and the Click CLI to `archive.py`. Append below the existing functions (imports are already at the top from Task 4).
+
+Note: each table writes into its own subdirectory `output_path / table`. `find_max_local_time` takes the resolved `table_dir`. `make_filename` produces just the date-range filename with no table prefix.
 
 ```python
 def fetch_table(
@@ -306,7 +310,7 @@ def fetch_table(
     "--output-dir",
     default="./archive",
     type=click.Path(),
-    help="Directory for parquet output files.",
+    help="Root directory for parquet output. Each table gets a subdirectory.",
     show_default=True,
 )
 @click.option(
@@ -327,12 +331,14 @@ def main(output_dir: str, full: bool, tables: tuple[str, ...]) -> None:
     """Incrementally archive Supabase hourly aggregate tables to local parquet files."""
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     output_path = Path(output_dir)
-    output_path.mkdir(parents=True, exist_ok=True)
 
     conn = psycopg2.connect(os.environ["DATABASE_URL"])
     try:
         for table in tables:
-            after = None if full else find_max_local_time(output_path, table)
+            table_dir = output_path / table
+            table_dir.mkdir(parents=True, exist_ok=True)
+
+            after = None if full else find_max_local_time(table_dir)
             if after is not None:
                 logger.info(f"{table}: fetching rows after {after}")
             else:
@@ -343,8 +349,8 @@ def main(output_dir: str, full: bool, tables: tuple[str, ...]) -> None:
                 logger.info(f"{table}: already up to date, nothing to write")
                 continue
 
-            filename = make_filename(table, df)
-            out_path = output_path / filename
+            filename = make_filename(df)
+            out_path = table_dir / filename
             df.write_parquet(out_path)
             logger.info(f"{table}: wrote {len(df)} rows ({df['time'].min()} – {df['time'].max()}) to {out_path}")
     finally:
@@ -588,15 +594,15 @@ poetry run python archive.py --full --output-dir ./archive
 
 Expected: two parquet files created in `./archive/`, one per table.
 
-- [ ] Verify files load cleanly together:
+- [ ] Verify files load cleanly per table:
 
 ```bash
 poetry run python -c "
 import polars as pl
 from pathlib import Path
-for f in sorted(Path('archive').glob('*.parquet')):
-    df = pl.read_parquet(f)
-    print(f, df.shape, df['time'].min(), '-', df['time'].max())
+for table_dir in sorted(Path('archive').iterdir()):
+    df = pl.scan_parquet(table_dir).collect()
+    print(table_dir.name, df.shape, df['time'].min(), '-', df['time'].max())
 "
 ```
 

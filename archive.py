@@ -1,6 +1,5 @@
 import logging
 import os
-import re
 from datetime import datetime
 from pathlib import Path
 
@@ -12,8 +11,6 @@ from dotenv import load_dotenv
 load_dotenv()
 logger = logging.getLogger(__name__)
 
-_DATE_SUFFIX_RE = re.compile(r"_\d{8}_\d{8}\.parquet$")
-
 VALID_TABLES = [
     "branch_energy_hourly",
     "main_energy_hourly",
@@ -22,12 +19,9 @@ VALID_TABLES = [
 ]
 
 
-def find_max_local_time(output_dir: Path, table: str) -> datetime | None:
-    """Return max(time) across all parquet files for table, or None if none exist."""
-    files = sorted(
-        f for f in output_dir.glob(f"{table}_????????_*.parquet")
-        if _DATE_SUFFIX_RE.search(f.name)
-    )
+def find_max_local_time(table_dir: Path) -> datetime | None:
+    """Return max(time) across all parquet files in table_dir, or None if none exist."""
+    files = sorted(table_dir.glob("*.parquet"))
     if not files:
         return None
     max_time = (
@@ -38,8 +32,8 @@ def find_max_local_time(output_dir: Path, table: str) -> datetime | None:
     return max_time
 
 
-def make_filename(table: str, df: pl.DataFrame) -> str:
+def make_filename(df: pl.DataFrame) -> str:
     """Generate a dated filename from min/max time of fetched data."""
     min_date = df["time"].min().strftime("%Y%m%d")
     max_date = df["time"].max().strftime("%Y%m%d")
-    return f"{table}_{min_date}_{max_date}.parquet"
+    return f"{min_date}_{max_date}.parquet"

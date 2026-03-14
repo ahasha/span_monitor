@@ -72,15 +72,15 @@ Options:
 
 ### Behavior
 
-Each run writes a new parquet file — existing files are never modified. The full archive is loaded with `pl.scan_parquet(output_dir)`.
+Each run writes a new parquet file — existing files are never modified. Each table has its own subdirectory, so files from different tables never share a namespace. Load a single table's full history with `pl.scan_parquet(output_dir / table_name)`.
 
 **Incremental (default):**
-1. For each target table, glob `{output_dir}/{table}_*.parquet` to find existing archive files
-2. If any exist, use Polars to compute `max(time)` across all of them
-3. Query rows where `time > max_local_time AND time < date_trunc('hour', now())` — the upper bound ensures only complete hourly buckets are archived
+1. For each target table, resolve `table_dir = output_dir / table`; create it if it doesn't exist
+2. Glob `table_dir/*.parquet` to find existing archive files; use Polars to compute `max(time)` across them
+3. Query rows where `time > max_local_time AND time < date_trunc('hour', now())` — upper bound ensures only complete hourly buckets are archived
 4. If no existing files, fetch all history up to `date_trunc('hour', now())`
 5. Construct a Polars DataFrame from cursor results
-6. Write to `{output_dir}/{table}_{start_date}_{end_date}.parquet` where dates are derived from the actual `min(time)` / `max(time)` of the fetched data
+6. Write to `table_dir/{start_date}_{end_date}.parquet` where dates are derived from `min(time)` / `max(time)` of the fetched data
 7. If the query returns no rows, log and exit cleanly (already up to date)
 
 **Full (`--full`):**
@@ -90,9 +90,11 @@ Each run writes a new parquet file — existing files are never modified. The fu
 **File layout:**
 ```
 archive/
-  branch_energy_hourly_20240826_20260314.parquet   # example from first run
-  branch_energy_hourly_20260315_20260321.parquet   # example from second run
-  main_energy_hourly_20240826_20260314.parquet
+  branch_energy_hourly/
+    20240826_20260314.parquet   # example from first run
+    20260315_20260321.parquet   # example from second run
+  main_energy_hourly/
+    20240826_20260314.parquet
   ...
 ```
 
