@@ -1,3 +1,7 @@
 .env
 span.log
 nohup.out
+*.parquet
+__pycache__/
+.vscode/
+.mcp.json
