@@ -29,6 +29,7 @@ def retry_on_connection_error(max_retries=3, backoff_in_seconds=5):
     def decorator(func):
         def wrapper(*args, **kwargs):
             retries = 0
+            last_error = None
             while retries < max_retries:
                 try:
                     return func(*args, **kwargs)
@@ -37,7 +38,8 @@ def retry_on_connection_error(max_retries=3, backoff_in_seconds=5):
                     wait_time = retries * backoff_in_seconds
                     logger.error(f"Attempt {retries}/{max_retries} failed: {str(e)}. Retrying in {wait_time} seconds...")
                     time.sleep(wait_time)
-            raise RuntimeError(f"Function failed after {max_retries} attempts. Last error: {str(e)}")
+                    last_error = e
+            raise RuntimeError(f"Function failed after {max_retries} attempts. Last error: {str(last_error)}")
         return wrapper
     return decorator
 

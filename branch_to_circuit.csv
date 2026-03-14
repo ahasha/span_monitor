@@ -1,0 +1,32 @@
+branch_id,circuit_id,name
+1,16d0d896e12444ed96fde4eb7df8a0b3,Surge protector
+3,16d0d896e12444ed96fde4eb7df8a0b3,Surge protector
+21,1e41ded77f4147d88d8bf3c49f38d683,120V next to panel
+16,345ca9d842a34867add8e401f311cfec,Kitchen countertop outlets
+10,46035e64ca764f34828c5988a2e56bd1,Master Bathroom Outlets
+26,50a9c15923fe4a06925c553f4a8d2696,Master Bedroom
+17,5122438aaea14a7380e9574bb259ab16,Kitchen / Microwave
+12,51625fa7fae14394939b95e61bea3b23,Kids Bathroom Outlets and shower
+25,654cef05593f4732a19d19b0eb2ba192,Hobbit room / Mud room / Garage / Basement
+24,77c9aa0f63174f5b971da9170aff2f5b,"Dining Room, Office, Basement, Hallway"
+19,84bcbf4247764426afbec6e496a99bc9,Unknown / Previously Boiler & Hydronic heat
+13,8788de8afe10448299e85bce1cce0ad2,Laundry / Dryer
+15,8788de8afe10448299e85bce1cce0ad2,Laundry / Dryer
+5,8f500634e70e4e118df89692001ec70c,HVAC / Subpanel
+7,8f500634e70e4e118df89692001ec70c,HVAC / Subpanel
+9,90aa2c6ec29048089c91ccebfb09b3c9,Kitchen / Range
+11,90aa2c6ec29048089c91ccebfb09b3c9,Kitchen / Range
+27,931a9f938ea04b89baa4f209272747b3,Office / Basement West and North walls
+23,94392e135db54da388b26317a9462fb8,Thermostats
+31,b057d2bbf09c40d196418f35556a1f3c,Smoke / CO detector
+6,b30be6ebb61440cc85658dc2951b4351,Water Heater
+8,b30be6ebb61440cc85658dc2951b4351,Water Heater
+18,bf29b05c71d34623b5e624ed6d27c1ef,Game Room
+29,cf548f0ad6974ddf8f59bd29150ca82f,Living room
+28,d2556c0eab0346d1b669927a54c11ebb,Henry and Livie’s Bedrooms
+22,d6f278efff824cf3bd6bff933cce404b,Basement storage room
+20,d752ca92adcc45a2b2ff98eede3d2aad,"Internet, Den, Brkfst Rm, Foyer, Lvngrm Fromt"
+14,d7d21cecfb354e9e92c0e951627ba5f5,Kitchen / Dishwasher & Refrigerator
+30,dd4ad804481a40a69d8f3538f87b89bb,First floor Bathroom
+2,f08cdbc7a3a445c088a578f49c181642,EV charger / Garage
+4,f08cdbc7a3a445c088a578f49c181642,EV charger / Garage
