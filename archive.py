@@ -1,5 +1,6 @@
 import logging
 import os
+import re
 from datetime import datetime
 from pathlib import Path
 
@@ -11,6 +12,8 @@ from dotenv import load_dotenv
 load_dotenv()
 logger = logging.getLogger(__name__)
 
+_DATE_SUFFIX_RE = re.compile(r"_\d{8}_\d{8}\.parquet$")
+
 VALID_TABLES = [
     "branch_energy_hourly",
     "main_energy_hourly",
@@ -21,7 +24,10 @@ VALID_TABLES = [
 
 def find_max_local_time(output_dir: Path, table: str) -> datetime | None:
     """Return max(time) across all parquet files for table, or None if none exist."""
-    files = sorted(output_dir.glob(f"{table}_*.parquet"))
+    files = sorted(
+        f for f in output_dir.glob(f"{table}_????????_*.parquet")
+        if _DATE_SUFFIX_RE.search(f.name)
+    )
     if not files:
         return None
     max_time = (

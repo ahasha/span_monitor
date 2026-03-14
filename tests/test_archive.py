@@ -4,10 +4,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 
-# Helpers imported after archive.py exists:
-# from archive import find_max_local_time, make_filename
-
-
 def make_hourly_df(times: list[datetime]) -> pl.DataFrame:
     return pl.DataFrame({"time": times, "value": [1.0] * len(times)})
 
@@ -48,6 +44,16 @@ class TestFindMaxLocalTime:
             tmp_path / "main_energy_hourly_20260301_20260301.parquet"
         )
         result = find_max_local_time(tmp_path, "branch_energy_hourly")
+        assert result is None
+
+    def test_does_not_match_table_name_prefix(self, tmp_path):
+        from archive import find_max_local_time
+        t = datetime(2026, 3, 1, tzinfo=timezone.utc)
+        # branch_energy_hourly files must not be matched when looking for branch_energy
+        make_hourly_df([t]).write_parquet(
+            tmp_path / "branch_energy_hourly_20260301_20260301.parquet"
+        )
+        result = find_max_local_time(tmp_path, "branch_energy")
         assert result is None
 
 
