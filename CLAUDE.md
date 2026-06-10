@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-A background service that polls a SPAN electrical panel API every second and logs energy data to Supabase (TimescaleDB backend). The `tesla-sdk/` subdirectory is a bundled OAuth2 SDK for Tesla's API, used for potential integration with Tesla energy products.
+A background service that polls a SPAN electrical panel API every 5 seconds and logs energy data to Supabase (TimescaleDB backend). The `tesla-sdk/` subdirectory is a bundled OAuth2 SDK for Tesla's API, used for potential integration with Tesla energy products.
 
 ## Development Commands
 

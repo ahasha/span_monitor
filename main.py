@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 dotenv.load_dotenv()
 
 def retry_on_connection_error(max_backoff_seconds=60, backoff_in_seconds=5):
-    connection_errors = (requests.exceptions.ConnectTimeout, requests.exceptions.ConnectionError, httpx.RemoteProtocolError)
+    connection_errors = (requests.exceptions.ConnectTimeout, requests.exceptions.ConnectionError, requests.exceptions.Timeout, httpx.RemoteProtocolError)
     def decorator(func):
         def wrapper(*args, **kwargs):
             retries = 0
@@ -43,7 +43,7 @@ def retry_on_connection_error(max_backoff_seconds=60, backoff_in_seconds=5):
 
 @retry_on_connection_error()
 def get_span_response(url: str, headers: dict):
-    response = requests.get(url, headers=headers)
+    response = requests.get(url, headers=headers, timeout=10)
     return response
 
 
@@ -136,7 +136,7 @@ if __name__ == "__main__":
             else:
                 logger.error(f"BAD {response.status_code}: {response.text}")
 
-            time.sleep(1)  # Poll every second
+            time.sleep(5)  # Poll every 5 seconds to limit storage, WAL, and bandwidth usage
     except KeyboardInterrupt:
         logger.error("Interrupt received, exiting gracefully...")
     finally:
