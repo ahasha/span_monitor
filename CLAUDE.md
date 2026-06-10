@@ -8,14 +8,17 @@ A background service that polls a SPAN electrical panel API every 5 seconds and 
 
 ## Development Commands
 
-This project uses Poetry (not `uv`):
+This project uses `uv`:
 
 ```bash
 # Install dependencies
-poetry install
+uv sync
 
 # Run the monitor
-poetry run python main.py
+uv run python main.py
+
+# Run the tests
+uv run pytest
 
 # Run as background service (prevents laptop sleep via caffeinate)
 ./run.sh
@@ -49,5 +52,5 @@ Required in a `.env` file:
 ## Notes
 
 - `run.sh` is hardcoded to the local machine path — update if running elsewhere
-- `poetry.lock` is committed; use `poetry install` not `pip install`
+- `uv.lock` is committed; use `uv sync` not `pip install`
 - The `scratch.ipynb` and `span.ipynb` notebooks are for ad-hoc analysis of the logged data
