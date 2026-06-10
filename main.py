@@ -24,22 +24,19 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 dotenv.load_dotenv()
 
-def retry_on_connection_error(max_retries=3, backoff_in_seconds=5):
-    connection_errors = (requests.exceptions.ConnectTimeout, httpx.RemoteProtocolError)
+def retry_on_connection_error(max_backoff_seconds=60, backoff_in_seconds=5):
+    connection_errors = (requests.exceptions.ConnectTimeout, requests.exceptions.ConnectionError, httpx.RemoteProtocolError)
     def decorator(func):
         def wrapper(*args, **kwargs):
             retries = 0
-            last_error = None
-            while retries < max_retries:
+            while True:
                 try:
                     return func(*args, **kwargs)
                 except connection_errors as e:
                     retries += 1
-                    wait_time = retries * backoff_in_seconds
-                    logger.error(f"Attempt {retries}/{max_retries} failed: {str(e)}. Retrying in {wait_time} seconds...")
+                    wait_time = min(retries * backoff_in_seconds, max_backoff_seconds)
+                    logger.error(f"Attempt {retries} failed: {str(e)}. Retrying in {wait_time} seconds...")
                     time.sleep(wait_time)
-                    last_error = e
-            raise RuntimeError(f"Function failed after {max_retries} attempts. Last error: {str(last_error)}")
         return wrapper
     return decorator
 
