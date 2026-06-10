@@ -52,22 +52,28 @@ def test_retry_decorator(mocker):
     ])
     mocker.patch('time.sleep')
 
-    decorated_func = retry_on_connection_error(max_retries=3, backoff_in_seconds=0)(mock_func)
+    decorated_func = retry_on_connection_error(backoff_in_seconds=0)(mock_func)
     result = decorated_func()
 
     assert result == "success"
     assert mock_func.call_count == 3
 
-def test_retry_decorator_max_retries_exceeded(mocker):
-    mock_func = Mock(side_effect=requests.exceptions.ConnectTimeout)
-    mocker.patch('time.sleep')
+def test_retry_decorator_retries_indefinitely(mocker):
+    failures = [requests.exceptions.ConnectTimeout] * 20
+    mock_func = Mock(side_effect=failures + ["success"])
+    mock_sleep = mocker.patch('time.sleep')
 
-    decorated_func = retry_on_connection_error(max_retries=3, backoff_in_seconds=0)(mock_func)
+    decorated_func = retry_on_connection_error(
+        max_backoff_seconds=60, backoff_in_seconds=5
+    )(mock_func)
+    result = decorated_func()
 
-    with pytest.raises(RuntimeError):
-        decorated_func()
-
-    assert mock_func.call_count == 3
+    assert result == "success"
+    assert mock_func.call_count == 21
+    # Backoff grows linearly then caps at max_backoff_seconds
+    waits = [call.args[0] for call in mock_sleep.call_args_list]
+    assert waits[:3] == [5, 10, 15]
+    assert waits[-1] == 60
 
 def test_get_span_response():
     mock_response = Mock()
@@ -117,6 +123,13 @@ def test_insert_data_api_error(mock_span_data):
 
 def test_get_span_response_connection_error(mocker):
     mocker.patch('time.sleep')
-    with patch('requests.get', side_effect=requests.exceptions.ConnectTimeout):
-        with pytest.raises(RuntimeError):
-            get_span_response("http://test-url", headers={})
+    mock_response = Mock()
+    mock_response.status_code = 200
+    with patch('requests.get', side_effect=[
+        requests.exceptions.ConnectTimeout,
+        requests.exceptions.ConnectionError,
+        mock_response,
+    ]):
+        response = get_span_response("http://test-url", headers={})
+
+    assert response.status_code == 200
