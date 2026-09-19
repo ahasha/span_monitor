@@ -255,6 +255,22 @@ def test_poll_once_survives_unexpected_exceptions(mocker):
     assert state.snapshot()["consecutive_errors"] == 1
 
 
+def test_poll_once_survives_notification_failure(mocker, mock_span_data):
+    """Notification/publishing work happens after the tick already
+    succeeded; a failure there must not escape poll_once or flip the
+    verdict it already earned."""
+    mocker.patch("main.get_span_response", return_value=Mock(status_code=200, json=Mock(return_value=mock_span_data)))
+    mocker.patch("main.insert_data", return_value=True)
+    mocker.patch("main.ping_healthcheck", return_value=True)
+    mocker.patch("main.publish_ha_sensor", side_effect=RuntimeError("boom"))
+
+    state = HealthState(clock=FakeClock())
+    result = poll_once("http://x", {}, Mock(), state, _always_ready(), _always_ready(), "https://hc-ping.com/abc")
+
+    assert result is True
+    assert state.is_healthy() is True
+
+
 def test_poll_once_respects_heartbeat_throttle(mocker, mock_span_data):
     mocker.patch("main.get_span_response", return_value=Mock(status_code=200, json=Mock(return_value=mock_span_data)))
     mocker.patch("main.insert_data", return_value=True)

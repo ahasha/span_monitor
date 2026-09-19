@@ -157,13 +157,22 @@ def poll_once(url, headers, supabase, state, heartbeat, sensor, healthcheck_url)
         logger.exception("Unexpected error in poll loop, continuing...")
         state.record_failure(str(e))
 
-    if success:
-        state.record_success()
-        if heartbeat.ready():
-            ping_healthcheck(healthcheck_url)
+    # Post-tick notification work (heartbeat ping, status sensor) must never
+    # be able to flip the verdict this function already earned. notify.py
+    # self-guards today, but the docstring promises "never raises"
+    # unconditionally, and under Supervisor an escape here means a
+    # container restart; on the macOS fallback path there is no watchdog at
+    # all, so the process would die silently.
+    try:
+        if success:
+            state.record_success()
+            if heartbeat.ready():
+                ping_healthcheck(healthcheck_url)
 
-    if sensor.ready():
-        publish_ha_sensor(state)
+        if sensor.ready():
+            publish_ha_sensor(state)
+    except Exception:
+        logger.exception("Post-tick notification failed")
 
     return success
 
