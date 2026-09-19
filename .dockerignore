@@ -1,0 +1,17 @@
+.git
+.github
+.claude
+notebooks/
+tesla-sdk/
+docs/
+supabase/
+tests/
+test_*.py
+conftest.py
+*.ipynb
+*.parquet
+*.csv
+*.log
+.venv/
+__pycache__/
+.env
