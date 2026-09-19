@@ -15,6 +15,7 @@ aggregate and per-circuit energy data to Supabase (TimescaleDB).
 | `poll_interval` | no | Seconds between polls (default 5) |
 | `stale_threshold` | no | Seconds without a successful write before the watchdog restarts the app (default 300) |
 | `heartbeat_interval` | no | Minimum seconds between heartbeat pings (default 60) |
+| `sensor_interval` | no | Minimum seconds between status sensor updates (default 30) |
 
 ## Alerting
 

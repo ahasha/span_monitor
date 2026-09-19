@@ -13,6 +13,7 @@ export SUPABASE_KEY="$(bashio::config 'supabase_key')"
 export POLL_INTERVAL="$(bashio::config 'poll_interval')"
 export STALE_THRESHOLD="$(bashio::config 'stale_threshold')"
 export HEARTBEAT_INTERVAL="$(bashio::config 'heartbeat_interval')"
+export SENSOR_INTERVAL="$(bashio::config 'sensor_interval')"
 export HEALTH_PORT="8099"
 
 # Optional: no URL means no heartbeat, and ping_healthcheck no-ops.

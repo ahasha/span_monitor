@@ -23,6 +23,7 @@ options:
   poll_interval: 5
   stale_threshold: 300
   heartbeat_interval: 60
+  sensor_interval: 30
 schema:
   span_ip: str
   span_api_key: password
@@ -32,3 +33,4 @@ schema:
   poll_interval: int(1,60)
   stale_threshold: int(60,3600)
   heartbeat_interval: int(10,600)
+  sensor_interval: int(10,600)
