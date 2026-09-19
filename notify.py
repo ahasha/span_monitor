@@ -56,12 +56,11 @@ def ping_healthcheck(url: str | None, timeout: float = TIMEOUT_SECONDS) -> bool:
 
     try:
         response = requests.get(url, timeout=timeout)
+        if response.status_code != 200:
+            logger.warning(f"Heartbeat ping returned {response.status_code}")
+            return False
     except Exception as e:
         logger.warning(f"Heartbeat ping failed: {e}")
-        return False
-
-    if response.status_code != 200:
-        logger.warning(f"Heartbeat ping returned {response.status_code}")
         return False
 
     return True
@@ -85,21 +84,20 @@ def publish_ha_sensor(
     if not token:
         return False
 
-    snapshot = state.snapshot()
-    elapsed = snapshot["seconds_since_success"]
-    payload = {
-        "state": "unknown" if elapsed is None else elapsed,
-        "attributes": {
-            "friendly_name": "SPAN Monitor",
-            "unit_of_measurement": "s",
-            "icon": "mdi:flash",
-            "healthy": snapshot["healthy"],
-            "consecutive_errors": snapshot["consecutive_errors"],
-            "last_error": snapshot["last_error"],
-        },
-    }
-
     try:
+        snapshot = state.snapshot()
+        elapsed = snapshot["seconds_since_success"]
+        payload = {
+            "state": "unknown" if elapsed is None else elapsed,
+            "attributes": {
+                "friendly_name": "SPAN Monitor",
+                "unit_of_measurement": "s",
+                "icon": "mdi:flash",
+                "healthy": snapshot["healthy"],
+                "consecutive_errors": snapshot["consecutive_errors"],
+                "last_error": snapshot["last_error"],
+            },
+        }
         response = requests.post(
             f"{SUPERVISOR_API}/states/{entity_id}",
             headers={
@@ -109,12 +107,11 @@ def publish_ha_sensor(
             json=payload,
             timeout=timeout,
         )
+        if response.status_code not in (200, 201):
+            logger.warning(f"Status sensor POST returned {response.status_code}")
+            return False
     except Exception as e:
         logger.warning(f"Could not publish status sensor: {e}")
-        return False
-
-    if response.status_code not in (200, 201):
-        logger.warning(f"Status sensor POST returned {response.status_code}")
         return False
 
     return True

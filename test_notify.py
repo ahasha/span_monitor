@@ -153,3 +153,15 @@ def test_publish_ha_sensor_swallows_unexpected_exceptions(mocker, monkeypatch):
     state = HealthState(clock=FakeClock())
     state.record_success()
     assert publish_ha_sensor(state) is False
+
+
+def test_publish_ha_sensor_swallows_state_errors(mocker, monkeypatch):
+    """The contract is that NOTHING escapes - including a failure in the
+    state object itself, not just in the network call."""
+    monkeypatch.setenv("SUPERVISOR_TOKEN", "tok123")
+    mock_post = mocker.patch("notify.requests.post")
+    broken_state = Mock()
+    broken_state.snapshot.side_effect = RuntimeError("lock timeout")
+
+    assert publish_ha_sensor(broken_state) is False
+    mock_post.assert_not_called()
