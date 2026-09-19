@@ -184,3 +184,88 @@ def test_get_span_response_connection_error(mocker):
         response = get_span_response("http://test-url", headers={})
 
     assert response.status_code == 200
+
+from health import HealthState
+from notify import Throttle
+from main import poll_once
+
+
+class FakeClock:
+    def __init__(self, now=1000.0):
+        self.now = now
+
+    def __call__(self):
+        return self.now
+
+    def advance(self, seconds):
+        self.now += seconds
+
+
+def _always_ready():
+    return Throttle(0.0, clock=FakeClock())
+
+
+def test_poll_once_records_success_and_pings(mocker, mock_span_data):
+    mocker.patch("main.get_span_response", return_value=Mock(status_code=200, json=Mock(return_value=mock_span_data)))
+    mocker.patch("main.insert_data", return_value=True)
+    mock_ping = mocker.patch("main.ping_healthcheck", return_value=True)
+    mocker.patch("main.publish_ha_sensor", return_value=True)
+
+    state = HealthState(clock=FakeClock())
+    assert poll_once("http://x", {}, Mock(), state, _always_ready(), _always_ready(), "https://hc-ping.com/abc") is True
+
+    assert state.is_healthy() is True
+    mock_ping.assert_called_once_with("https://hc-ping.com/abc")
+
+
+def test_poll_once_failed_insert_records_failure_and_does_not_ping(mocker, mock_span_data):
+    """The silent-failure case: SPAN answers 200 but nothing reaches the DB."""
+    mocker.patch("main.get_span_response", return_value=Mock(status_code=200, json=Mock(return_value=mock_span_data)))
+    mocker.patch("main.insert_data", return_value=False)
+    mock_ping = mocker.patch("main.ping_healthcheck")
+    mocker.patch("main.publish_ha_sensor")
+
+    state = HealthState(clock=FakeClock())
+    assert poll_once("http://x", {}, Mock(), state, _always_ready(), _always_ready(), "https://hc-ping.com/abc") is False
+
+    assert state.is_healthy() is False
+    assert state.snapshot()["consecutive_errors"] == 1
+    mock_ping.assert_not_called()
+
+
+def test_poll_once_non_200_records_failure(mocker):
+    mocker.patch("main.get_span_response", return_value=Mock(status_code=503, text="unavailable"))
+    mock_ping = mocker.patch("main.ping_healthcheck")
+    mocker.patch("main.publish_ha_sensor")
+
+    state = HealthState(clock=FakeClock())
+    assert poll_once("http://x", {}, Mock(), state, _always_ready(), _always_ready(), None) is False
+
+    assert state.snapshot()["consecutive_errors"] == 1
+    mock_ping.assert_not_called()
+
+
+def test_poll_once_survives_unexpected_exceptions(mocker):
+    """Nothing may escape a tick - the service must outlive any single error."""
+    mocker.patch("main.get_span_response", side_effect=ValueError("surprise"))
+    mocker.patch("main.publish_ha_sensor")
+
+    state = HealthState(clock=FakeClock())
+    assert poll_once("http://x", {}, Mock(), state, _always_ready(), _always_ready(), None) is False
+    assert state.snapshot()["consecutive_errors"] == 1
+
+
+def test_poll_once_respects_heartbeat_throttle(mocker, mock_span_data):
+    mocker.patch("main.get_span_response", return_value=Mock(status_code=200, json=Mock(return_value=mock_span_data)))
+    mocker.patch("main.insert_data", return_value=True)
+    mock_ping = mocker.patch("main.ping_healthcheck")
+    mocker.patch("main.publish_ha_sensor")
+
+    clock = FakeClock()
+    heartbeat = Throttle(60.0, clock=clock)
+    state = HealthState(clock=clock)
+
+    for _ in range(3):
+        poll_once("http://x", {}, Mock(), state, heartbeat, _always_ready(), "https://hc-ping.com/abc")
+
+    assert mock_ping.call_count == 1
