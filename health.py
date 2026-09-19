@@ -67,3 +67,56 @@ class HealthState:
                 "consecutive_errors": self._consecutive_errors,
                 "last_error": self._last_error,
             }
+
+
+def health_response(state: HealthState) -> tuple[int, bytes]:
+    """Return (status_code, json_body) describing current health.
+
+    200 means data reached the database recently. 503 means it did not, and
+    Supervisor's watchdog will restart the container. Cold start is 503:
+    a process that has never succeeded has not earned the benefit of doubt.
+    """
+    snapshot = state.snapshot()
+    status = 200 if snapshot["healthy"] else 503
+    return status, json.dumps(snapshot).encode("utf-8")
+
+
+class _HealthHandler(BaseHTTPRequestHandler):
+    state: HealthState  # injected by start_health_server
+
+    def do_GET(self):  # noqa: N802 - name mandated by BaseHTTPRequestHandler
+        if self.path != "/healthz":
+            self.send_response(404)
+            self.end_headers()
+            return
+
+        status, body = health_response(self.state)
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, format, *args):
+        """Silence per-request stdout logging.
+
+        The watchdog polls this endpoint continuously; logging every probe
+        would bury the actual monitor output and churn the Pi's SD card.
+        """
+        return
+
+
+def start_health_server(state: HealthState, port: int) -> HTTPServer:
+    """Serve /healthz on a daemon thread and return the server.
+
+    Pass port=0 to bind a free port, then read server.server_address[1].
+    The thread is a daemon so it never blocks interpreter shutdown.
+    """
+    handler = type("BoundHealthHandler", (_HealthHandler,), {"state": state})
+    server = HTTPServer(("0.0.0.0", port), handler)
+    thread = threading.Thread(
+        target=server.serve_forever, name="health-server", daemon=True
+    )
+    thread.start()
+    logger.info(f"Health endpoint listening on port {server.server_address[1]}")
+    return server

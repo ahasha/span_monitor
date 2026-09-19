@@ -84,3 +84,74 @@ def test_snapshot_shape():
         "consecutive_errors": 0,
         "last_error": "",
     }
+
+
+import json
+
+import requests
+
+from health import health_response, start_health_server
+
+
+def test_health_response_ok_when_fresh():
+    clock = FakeClock()
+    state = HealthState(stale_threshold=300.0, clock=clock)
+    state.record_success()
+
+    status, body = health_response(state)
+
+    assert status == 200
+    assert json.loads(body)["healthy"] is True
+
+
+def test_health_response_503_when_stale():
+    clock = FakeClock()
+    state = HealthState(stale_threshold=300.0, clock=clock)
+    state.record_success()
+    clock.advance(301.0)
+
+    status, body = health_response(state)
+
+    assert status == 503
+    assert json.loads(body)["seconds_since_success"] == 301.0
+
+
+def test_health_response_503_on_cold_start():
+    state = HealthState(stale_threshold=300.0, clock=FakeClock())
+
+    status, body = health_response(state)
+
+    assert status == 503
+    assert json.loads(body)["seconds_since_success"] is None
+
+
+def test_health_server_serves_healthz():
+    """Integration: proves the handler is wired to health_response."""
+    clock = FakeClock()
+    state = HealthState(stale_threshold=300.0, clock=clock)
+    state.record_success()
+    server = start_health_server(state, port=0)
+    try:
+        port = server.server_address[1]
+        response = requests.get(f"http://127.0.0.1:{port}/healthz", timeout=5)
+        assert response.status_code == 200
+        assert response.json()["healthy"] is True
+
+        clock.advance(301.0)
+        response = requests.get(f"http://127.0.0.1:{port}/healthz", timeout=5)
+        assert response.status_code == 503
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_health_server_404s_unknown_paths():
+    state = HealthState(stale_threshold=300.0, clock=FakeClock())
+    server = start_health_server(state, port=0)
+    try:
+        port = server.server_address[1]
+        response = requests.get(f"http://127.0.0.1:{port}/nope", timeout=5)
+        assert response.status_code == 404
+    finally:
+        server.shutdown()
+        server.server_close()
