@@ -1,6 +1,6 @@
 import pytest
 from unittest.mock import Mock, patch
-from datetime import datetime, UTC
+from datetime import datetime, timedelta, UTC
 import requests
 import httpx
 from postgrest import APIError
@@ -8,7 +8,8 @@ import main
 from main import (
     retry_on_connection_error,
     get_span_response,
-    insert_data
+    insert_data,
+    get_newest_row_time,
 )
 
 # Sample test data
@@ -269,6 +270,97 @@ def test_poll_once_survives_notification_failure(mocker, mock_span_data):
 
     assert result is True
     assert state.is_healthy() is True
+
+
+def _mock_newest_row_query(mock_supabase, rows):
+    (
+        mock_supabase.table.return_value.select.return_value.order.return_value
+        .limit.return_value.execute.return_value
+    ) = Mock(data=rows)
+
+
+def test_get_newest_row_time_returns_parsed_datetime():
+    mock_supabase = Mock()
+    _mock_newest_row_query(mock_supabase, [{"time": "2026-01-01T12:30:00+00:00"}])
+
+    result = get_newest_row_time(mock_supabase)
+
+    assert result == datetime(2026, 1, 1, 12, 30, 0, tzinfo=UTC)
+    mock_supabase.table.assert_called_once_with("main_energy")
+    mock_supabase.table.return_value.select.return_value.order.assert_called_once_with(
+        "time", desc=True
+    )
+    mock_supabase.table.return_value.select.return_value.order.return_value.limit.assert_called_once_with(1)
+
+
+def test_get_newest_row_time_fails_open_on_query_error():
+    """Fails OPEN: an unreachable database must not stop the monitor."""
+    mock_supabase = Mock()
+    (
+        mock_supabase.table.return_value.select.return_value.order.return_value
+        .limit.return_value.execute.side_effect
+    ) = RuntimeError("connection refused")
+
+    assert get_newest_row_time(mock_supabase) is None
+
+
+def test_get_newest_row_time_returns_none_when_table_empty():
+    mock_supabase = Mock()
+    _mock_newest_row_query(mock_supabase, [])
+
+    assert get_newest_row_time(mock_supabase) is None
+
+
+def test_poll_once_clock_behind_floor_skips_insert_and_fails(mocker, mock_span_data):
+    mocker.patch("main.get_span_response", return_value=Mock(status_code=200, json=Mock(return_value=mock_span_data)))
+    mock_insert = mocker.patch("main.insert_data")
+    mocker.patch("main.publish_ha_sensor")
+
+    state = HealthState(clock=FakeClock())
+    clock_floor = datetime.now(UTC) + timedelta(hours=3)
+
+    result = poll_once(
+        "http://x", {}, Mock(), state, _always_ready(), _always_ready(), None,
+        clock_floor=clock_floor,
+    )
+
+    assert result is False
+    mock_insert.assert_not_called()
+    assert state.snapshot()["consecutive_errors"] == 1
+    assert state.snapshot()["last_error"] == "clock behind newest stored row"
+
+
+def test_poll_once_clock_after_floor_inserts_normally(mocker, mock_span_data):
+    mocker.patch("main.get_span_response", return_value=Mock(status_code=200, json=Mock(return_value=mock_span_data)))
+    mock_insert = mocker.patch("main.insert_data", return_value=True)
+    mocker.patch("main.publish_ha_sensor")
+
+    state = HealthState(clock=FakeClock())
+    clock_floor = datetime.now(UTC) - timedelta(hours=3)
+
+    result = poll_once(
+        "http://x", {}, Mock(), state, _always_ready(), _always_ready(), None,
+        clock_floor=clock_floor,
+    )
+
+    assert result is True
+    mock_insert.assert_called_once()
+
+
+def test_poll_once_clock_floor_none_disables_guard(mocker, mock_span_data):
+    mocker.patch("main.get_span_response", return_value=Mock(status_code=200, json=Mock(return_value=mock_span_data)))
+    mock_insert = mocker.patch("main.insert_data", return_value=True)
+    mocker.patch("main.publish_ha_sensor")
+
+    state = HealthState(clock=FakeClock())
+
+    result = poll_once(
+        "http://x", {}, Mock(), state, _always_ready(), _always_ready(), None,
+        clock_floor=None,
+    )
+
+    assert result is True
+    mock_insert.assert_called_once()
 
 
 def test_poll_once_respects_heartbeat_throttle(mocker, mock_span_data):
