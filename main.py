@@ -54,21 +54,19 @@ def get_span_response(url: str, headers: dict):
 
 
 @retry_on_connection_error()
-def insert_data(data: dict, now: str, supabase: Client):
+def insert_data(data: dict, now: str, supabase: Client) -> bool:
     """
-    Inserts data into the 'main_energy' and 'branch_energy' tables in Supabase.
+    Insert one tick of panel data into 'main_energy' and 'branch_energy'.
 
-    Args:
-        data (dict): A dictionary containing the data to be inserted.
-        supabase (Client): An instance of the Supabase client.
-
-    Returns:
-        None
+    Returns True only if both inserts succeeded. A partial write counts as
+    a failure: the health, heartbeat, and status layers all key off this
+    value, so reporting success when rows did not land would recreate the
+    silent failure this return value exists to expose.
     """
-
+    main_ok = False
     logger.debug("Inserting data to main_energy")
     try:
-        response = (
+        (
             supabase.table("main_energy")
             .insert(
                 {
@@ -88,6 +86,7 @@ def insert_data(data: dict, now: str, supabase: Client):
                 })
             .execute()
         )
+        main_ok = True
     except APIError as e:
         logger.error(f"Error inserting data: {e}")
         logger.error(data)
@@ -106,15 +105,19 @@ def insert_data(data: dict, now: str, supabase: Client):
         }
         for branch in data['branches']
     ]
+    branch_ok = False
     try:
-        response = (
+        (
             supabase.table("branch_energy")
             .insert(insert_records)
             .execute()
         )
+        branch_ok = True
     except APIError as e:
         logger.error(f"Error inserting data: {e}")
         logger.error(data)
+
+    return main_ok and branch_ok
 
 
 if __name__ == "__main__":

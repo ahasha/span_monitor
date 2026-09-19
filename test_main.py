@@ -133,10 +133,43 @@ def test_insert_data_api_error(mock_span_data):
     # Test handling of API error
     now = datetime.now(UTC).isoformat()
     with patch('main.logger.error') as mock_logger_error:
-        insert_data(mock_span_data, now, mock_supabase)
+        assert insert_data(mock_span_data, now, mock_supabase) is False
         mock_logger_error.assert_any_call(
             "Error inserting data: {'message': 'Test error', 'code': 402, 'hint': 'Blah', 'details': 'blah'}"
         )
+
+
+def test_insert_data_returns_true_on_success(mock_span_data):
+    mock_supabase = Mock()
+    mock_supabase.table.return_value.insert.return_value.execute.return_value = None
+
+    now = datetime.now(UTC).isoformat()
+    assert insert_data(mock_span_data, now, mock_supabase) is True
+
+
+def test_insert_data_returns_false_when_branch_insert_fails(mock_span_data):
+    """Main succeeds, branches fail: a partial write is still a failed tick."""
+    mock_supabase = Mock()
+    error = APIError({"message": "boom", "code": 500, "hint": "", "details": ""})
+    mock_supabase.table.return_value.insert.return_value.execute.side_effect = [
+        None,    # main_energy succeeds
+        error,   # branch_energy fails
+    ]
+
+    now = datetime.now(UTC).isoformat()
+    assert insert_data(mock_span_data, now, mock_supabase) is False
+
+
+def test_insert_data_returns_false_when_main_insert_fails(mock_span_data):
+    mock_supabase = Mock()
+    error = APIError({"message": "boom", "code": 500, "hint": "", "details": ""})
+    mock_supabase.table.return_value.insert.return_value.execute.side_effect = [
+        error,   # main_energy fails
+        None,    # branch_energy succeeds
+    ]
+
+    now = datetime.now(UTC).isoformat()
+    assert insert_data(mock_span_data, now, mock_supabase) is False
 
 
 def test_get_span_response_connection_error(mocker):
