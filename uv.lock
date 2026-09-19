@@ -1441,11 +1441,7 @@ name = "span-monitor"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
-    { name = "click" },
-    { name = "ipykernel" },
-    { name = "pandas" },
-    { name = "polars" },
-    { name = "psycopg2-binary" },
+    { name = "httpx" },
     { name = "python-dotenv" },
     { name = "requests" },
     { name = "supabase" },
@@ -1456,14 +1452,19 @@ dev = [
     { name = "pytest" },
     { name = "pytest-mock" },
 ]
+notebooks = [
+    { name = "ipykernel" },
+    { name = "pandas" },
+]
+tools = [
+    { name = "click" },
+    { name = "polars" },
+    { name = "psycopg2-binary" },
+]
 
 [package.metadata]
 requires-dist = [
-    { name = "click", specifier = ">=8.1,<9" },
-    { name = "ipykernel", specifier = ">=6.29.5,<7" },
-    { name = "pandas", specifier = ">=2.2.2,<3" },
-    { name = "polars", specifier = ">=1.0,<2" },
-    { name = "psycopg2-binary", specifier = ">=2.9.9,<3" },
+    { name = "httpx", specifier = ">=0.28,<1" },
     { name = "python-dotenv", specifier = ">=1.0.1,<2" },
     { name = "requests", specifier = ">=2.32.3,<3" },
     { name = "supabase", specifier = ">=2.7.3,<3" },
@@ -1473,6 +1474,15 @@ requires-dist = [
 dev = [
     { name = "pytest", specifier = ">=9.0.3,<10" },
     { name = "pytest-mock", specifier = ">=3.15.1,<4" },
+]
+notebooks = [
+    { name = "ipykernel", specifier = ">=6.29.5,<7" },
+    { name = "pandas", specifier = ">=2.2.2,<3" },
+]
+tools = [
+    { name = "click", specifier = ">=8.1,<9" },
+    { name = "polars", specifier = ">=1.0,<2" },
+    { name = "psycopg2-binary", specifier = ">=2.9.9,<3" },
 ]
 
 [[package]]
