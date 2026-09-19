@@ -1,4 +1,3 @@
-import health
 from health import HealthState
 
 
@@ -153,5 +152,30 @@ def test_health_server_404s_unknown_paths():
         response = requests.get(f"http://127.0.0.1:{port}/nope", timeout=5)
         assert response.status_code == 404
     finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_health_server_survives_a_stalled_connection():
+    """A client that opens a TCP connection and sends nothing must not be
+    able to wedge the server for everyone else - a network scanner or a
+    half-open socket is normal on a LAN-exposed port. Regression test for
+    the watchdog restarting a monitor that is working perfectly."""
+    import socket
+
+    state = HealthState(stale_threshold=300.0, clock=FakeClock())
+    state.record_success()
+    server = start_health_server(state, port=0)
+    port = server.server_address[1]
+
+    stalled = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        stalled.connect(("127.0.0.1", port))
+        # Deliberately send nothing and leave the connection open.
+
+        response = requests.get(f"http://127.0.0.1:{port}/healthz", timeout=5)
+        assert response.status_code == 200
+    finally:
+        stalled.close()
         server.shutdown()
         server.server_close()

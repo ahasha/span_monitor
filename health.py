@@ -4,7 +4,7 @@ import json
 import logging
 import threading
 import time
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, HTTPServer, ThreadingHTTPServer
 from typing import Callable
 
 logger = logging.getLogger(__name__)
@@ -84,6 +84,13 @@ def health_response(state: HealthState) -> tuple[int, bytes]:
 class _HealthHandler(BaseHTTPRequestHandler):
     state: HealthState  # injected by start_health_server
 
+    # StreamRequestHandler.setup() applies this as the connection socket's
+    # timeout when it is not None. Without it, a client that opens a
+    # connection and sends nothing blocks handle_one_request() in
+    # rfile.readline() forever - see start_health_server for why that
+    # matters on a LAN-exposed port.
+    timeout = 5
+
     def do_GET(self):  # noqa: N802 - name mandated by BaseHTTPRequestHandler
         if self.path != "/healthz":
             self.send_response(404)
@@ -111,9 +118,16 @@ def start_health_server(state: HealthState, port: int) -> HTTPServer:
 
     Pass port=0 to bind a free port, then read server.server_address[1].
     The thread is a daemon so it never blocks interpreter shutdown.
+
+    Uses ThreadingHTTPServer, not HTTPServer: the port is LAN-exposed, and a
+    plain HTTPServer handles one request at a time, so a single client that
+    opens a connection and sends nothing (a network scanner, a router
+    discovery sweep, a sleeping laptop's half-open socket) would wedge every
+    other request behind it - and Supervisor's watchdog would then restart a
+    monitor that is working perfectly.
     """
     handler = type("BoundHealthHandler", (_HealthHandler,), {"state": state})
-    server = HTTPServer(("0.0.0.0", port), handler)
+    server = ThreadingHTTPServer(("0.0.0.0", port), handler)
     thread = threading.Thread(
         target=server.serve_forever, name="health-server", daemon=True
     )
