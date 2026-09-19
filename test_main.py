@@ -2,6 +2,7 @@ import pytest
 from unittest.mock import Mock, patch
 from datetime import datetime, UTC
 import requests
+import httpx
 from postgrest import APIError
 import main
 from main import (
@@ -74,6 +75,23 @@ def test_retry_decorator_retries_indefinitely(mocker):
     waits = [call.args[0] for call in mock_sleep.call_args_list]
     assert waits[:3] == [5, 10, 15]
     assert waits[-1] == 60
+
+@pytest.mark.parametrize("exc", [
+    httpx.WriteError("broken pipe"),
+    httpx.ReadError("connection reset"),
+    httpx.ConnectError("connection refused"),
+    httpx.RemoteProtocolError("server disconnected"),
+])
+def test_retry_decorator_recovers_from_httpx_transport_errors(mocker, exc):
+    mock_func = Mock(side_effect=[exc, "success"])
+    mocker.patch('time.sleep')
+
+    decorated_func = retry_on_connection_error(backoff_in_seconds=0)(mock_func)
+    result = decorated_func()
+
+    assert result == "success"
+    assert mock_func.call_count == 2
+
 
 def test_get_span_response():
     mock_response = Mock()

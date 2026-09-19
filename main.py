@@ -25,7 +25,14 @@ logger = logging.getLogger(__name__)
 dotenv.load_dotenv()
 
 def retry_on_connection_error(max_backoff_seconds=60, backoff_in_seconds=5):
-    connection_errors = (requests.exceptions.ConnectTimeout, requests.exceptions.ConnectionError, requests.exceptions.Timeout, httpx.RemoteProtocolError)
+    # httpx.TransportError is the common ancestor of WriteError (broken pipe),
+    # ReadError, ConnectError, the timeout errors, and RemoteProtocolError, so it
+    # covers every transient transport failure raised by the Supabase httpx client.
+    connection_errors = (
+        requests.exceptions.ConnectionError,
+        requests.exceptions.Timeout,
+        httpx.TransportError,
+    )
     def decorator(func):
         def wrapper(*args, **kwargs):
             retries = 0
@@ -127,14 +134,20 @@ if __name__ == "__main__":
 
     try:
         while True:
-            response = get_span_response(url, headers=headers)
-            if response.status_code == 200:
-                data = response.json()
-                now = datetime.now(UTC).isoformat()
-                logger.info(f"OK {response.status_code}: {data['instantGridPowerW']} W")
-                insert_data(data, now, supabase)
-            else:
-                logger.error(f"BAD {response.status_code}: {response.text}")
+            try:
+                response = get_span_response(url, headers=headers)
+                if response.status_code == 200:
+                    data = response.json()
+                    now = datetime.now(UTC).isoformat()
+                    logger.info(f"OK {response.status_code}: {data['instantGridPowerW']} W")
+                    insert_data(data, now, supabase)
+                else:
+                    logger.error(f"BAD {response.status_code}: {response.text}")
+            except Exception:
+                # Last-resort safety net: never let an unexpected error kill the
+                # service. Log it and keep polling; the next tick will retry.
+                # (KeyboardInterrupt is a BaseException, so it still exits below.)
+                logger.exception("Unexpected error in poll loop, continuing...")
 
             time.sleep(5)  # Poll every 5 seconds to limit storage, WAL, and bandwidth usage
     except KeyboardInterrupt:
