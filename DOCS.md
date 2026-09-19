@@ -33,7 +33,26 @@ this and restarts the container on 503, which recovers the case where the
 process is alive but silently writing nothing.
 
 A `sensor.span_monitor` entity reports seconds since the last successful write,
-with `healthy`, `consecutive_errors`, and `last_error` attributes.
+with `healthy`, `consecutive_errors`, and `last_error` attributes. If the poll
+loop wedges, this sensor stops updating rather than going unavailable, so a
+frozen value is itself a symptom, not a clean "no data" state. The
+healthchecks.io alert configured above, not the sensor, is the real alarm -
+it fires from the dead-man switch regardless of whether the sensor update
+also stalled.
+
+## Security
+
+The four credentials (`span_api_key`, `supabase_url`, `supabase_key`,
+`healthcheck_url`) are stored by Supervisor in `/data/options.json` in
+plaintext, and that file is included in Home Assistant backups. Backups are
+commonly synced to cloud storage or a NAS, so password-protect your Home
+Assistant backups accordingly.
+
+Using a Supabase key scoped to inserts on `main_energy` and `branch_energy`
+is strongly preferable to reusing the service-role key: the service-role key
+grants unrestricted access to the full history, so if `options.json` or a
+backup is ever exposed, a scoped key limits the damage to future inserts
+rather than the entire dataset.
 
 ## Important
 
