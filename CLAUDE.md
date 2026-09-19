@@ -53,7 +53,7 @@ indefinitely; a monitor that can take down the service is worse than none.
 - `main_energy` — aggregate grid/panel data, compressed hypertable
 - `branch_energy` — per-circuit measurements, compressed hypertable
 - Continuous aggregate materialized views: `branch_energy_hourly`, `main_energy_hourly`
-- Raw data retention: 1 week; hourly aggregates persist indefinitely
+- Raw data retention: 3 days; hourly aggregates persist indefinitely
 - Schema in `database_setup.sql` and `supabase/migrations/`
 
 **`tesla-sdk/`** — Custom OAuth2 SDK for Tesla's owner API. Uses PKCE-based OAuth2 flow with token caching. Classes: `Client` (auth), `Account`, `Vehicle`, `Energy`. Not currently used by the monitor service.
