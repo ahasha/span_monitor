@@ -1,28 +1,33 @@
 import requests
 import dotenv
 import os
-import psycopg2
 from datetime import datetime
 from datetime import UTC
 import time
 import logging
-import os
 from supabase import create_client, Client
 from postgrest import APIError
 import httpx
-import time
+from health import HealthState, start_health_server
+from notify import Throttle, ping_healthcheck, publish_ha_sensor
 
-# loglevel info, log to a file
+dotenv.load_dotenv()
+
+# Log to stdout always; add a file only when asked. Supervisor captures and
+# rotates stdout, and writing a line every few seconds to a Raspberry Pi's
+# SD card is needless wear. run.sh sets SPAN_LOG_FILE for the macOS path.
+_handlers = [logging.StreamHandler()]
+if _log_file := os.getenv("SPAN_LOG_FILE"):
+    _handlers.append(logging.FileHandler(_log_file))
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(message)s",
-    handlers=[
-        logging.FileHandler("span.log"),
-        logging.StreamHandler(),
-    ])
+    handlers=_handlers,
+)
 
 logger = logging.getLogger(__name__)
-dotenv.load_dotenv()
+
 
 def retry_on_connection_error(max_backoff_seconds=60, backoff_in_seconds=5):
     # httpx.TransportError is the common ancestor of WriteError (broken pipe),
@@ -55,21 +60,19 @@ def get_span_response(url: str, headers: dict):
 
 
 @retry_on_connection_error()
-def insert_data(data: dict, now: str, supabase: Client):
+def insert_data(data: dict, now: str, supabase: Client) -> bool:
     """
-    Inserts data into the 'main_energy' and 'branch_energy' tables in Supabase.
+    Insert one tick of panel data into 'main_energy' and 'branch_energy'.
 
-    Args:
-        data (dict): A dictionary containing the data to be inserted.
-        supabase (Client): An instance of the Supabase client.
-
-    Returns:
-        None
+    Returns True only if both inserts succeeded. A partial write counts as
+    a failure: the health, heartbeat, and status layers all key off this
+    value, so reporting success when rows did not land would recreate the
+    silent failure this return value exists to expose.
     """
-
+    main_ok = False
     logger.debug("Inserting data to main_energy")
     try:
-        response = (
+        (
             supabase.table("main_energy")
             .insert(
                 {
@@ -89,6 +92,7 @@ def insert_data(data: dict, now: str, supabase: Client):
                 })
             .execute()
         )
+        main_ok = True
     except APIError as e:
         logger.error(f"Error inserting data: {e}")
         logger.error(data)
@@ -107,15 +111,118 @@ def insert_data(data: dict, now: str, supabase: Client):
         }
         for branch in data['branches']
     ]
+    branch_ok = False
     try:
-        response = (
+        (
             supabase.table("branch_energy")
             .insert(insert_records)
             .execute()
         )
+        branch_ok = True
     except APIError as e:
         logger.error(f"Error inserting data: {e}")
         logger.error(data)
+
+    return main_ok and branch_ok
+
+
+def get_newest_row_time(supabase: Client) -> datetime | None:
+    """Return the newest timestamp already in main_energy, or None if unknown.
+
+    Fails OPEN: any error returns None, which disables the clock guard. No
+    data at all is a worse outcome than data with a slightly suspect
+    timestamp, so an unreachable database must not stop the monitor.
+    """
+    try:
+        response = (
+            supabase.table("main_energy")
+            .select("time")
+            .order("time", desc=True)
+            .limit(1)
+            .execute()
+        )
+        rows = response.data
+        if not rows:
+            return None
+        parsed = datetime.fromisoformat(rows[0]["time"])
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=UTC)
+        return parsed
+    except Exception as e:
+        logger.warning(f"Could not determine newest stored row time: {e}")
+        return None
+
+
+def poll_once(
+    url, headers, supabase, state, heartbeat, sensor, healthcheck_url,
+    clock_floor: datetime | None = None,
+) -> bool:
+    """Run one poll/insert tick. Returns True if data reached the database.
+
+    A tick counts as successful only when SPAN answered 200 AND both inserts
+    landed. Anything less is a failure, because a tick that logs OK while the
+    database stays empty is the exact failure this service exists to catch.
+
+    clock_floor, when set, is the newest timestamp already stored in
+    main_energy at process startup. If the system clock is behind it, the
+    tick is refused rather than inserted - a Raspberry Pi with no
+    battery-backed RTC can boot with a clock hours behind real time, and a
+    row timestamped in the past would corrupt the permanent hourly
+    continuous aggregates. It is captured once at startup and never updated
+    from our own writes; see get_newest_row_time and the callers in
+    __main__ for why a rolling high-water mark would be worse than the bug
+    it fixes.
+
+    Never raises: the service must outlive any single error.
+    """
+    success = False
+    try:
+        response = get_span_response(url, headers=headers)
+        if response.status_code == 200:
+            data = response.json()
+            now_dt = datetime.now(UTC)
+            now = now_dt.isoformat()
+            if clock_floor is not None and now_dt < clock_floor:
+                logger.error(
+                    f"System clock ({now}) is behind the newest stored row "
+                    f"({clock_floor.isoformat()}); refusing to insert until "
+                    "the clock catches up"
+                )
+                state.record_failure("clock behind newest stored row")
+            elif insert_data(data, now, supabase):
+                logger.info(f"OK {response.status_code}: {data['instantGridPowerW']} W")
+                success = True
+            else:
+                logger.error("Insert failed: data did not reach the database")
+                state.record_failure("insert failed")
+        else:
+            logger.error(f"BAD {response.status_code}: {response.text}")
+            state.record_failure(f"SPAN returned {response.status_code}")
+    except Exception as e:
+        # Last-resort safety net: never let an unexpected error kill the
+        # service. Log it and keep polling; the next tick will retry.
+        # (KeyboardInterrupt is a BaseException, so it still exits.)
+        logger.exception("Unexpected error in poll loop, continuing...")
+        state.record_failure(str(e))
+
+    # Post-tick notification work (heartbeat ping, status sensor) must never
+    # be able to flip the verdict this function already earned. notify.py
+    # self-guards today, but the docstring promises "never raises"
+    # unconditionally, and under Supervisor an escape here means a
+    # container restart; on the macOS fallback path there is no watchdog at
+    # all, so the process would die silently.
+    try:
+        if success:
+            state.record_success()
+            if heartbeat.ready():
+                ping_healthcheck(healthcheck_url)
+
+        if sensor.ready():
+            publish_ha_sensor(state)
+    except Exception:
+        logger.exception("Post-tick notification failed")
+
+    return success
 
 
 if __name__ == "__main__":
@@ -132,24 +239,31 @@ if __name__ == "__main__":
     supabase_key: str = os.environ.get("SUPABASE_KEY")
     supabase: Client = create_client(supabase_url, supabase_key)
 
+    poll_interval = float(os.getenv("POLL_INTERVAL", "5"))
+    stale_threshold = float(os.getenv("STALE_THRESHOLD", "300"))
+    health_port = int(os.getenv("HEALTH_PORT", "8099"))
+    heartbeat_interval = float(os.getenv("HEARTBEAT_INTERVAL", "60"))
+    sensor_interval = float(os.getenv("SENSOR_INTERVAL", "30"))
+    healthcheck_url = os.getenv("HEALTHCHECK_URL")
+
+    state = HealthState(stale_threshold=stale_threshold)
+    start_health_server(state, health_port)
+    heartbeat = Throttle(heartbeat_interval)
+    sensor = Throttle(sensor_interval)
+
+    # Captured once, never updated from our own writes - see get_newest_row_time
+    # and poll_once's docstring for why a rolling high-water mark would be worse
+    # than the clock-skew bug it guards against.
+    clock_floor = get_newest_row_time(supabase)
+    if clock_floor is not None:
+        logger.info(f"Clock guard armed: refusing writes timestamped before {clock_floor.isoformat()}")
+    else:
+        logger.info("Clock guard disabled: no newest-row timestamp available at startup")
+
     try:
         while True:
-            try:
-                response = get_span_response(url, headers=headers)
-                if response.status_code == 200:
-                    data = response.json()
-                    now = datetime.now(UTC).isoformat()
-                    logger.info(f"OK {response.status_code}: {data['instantGridPowerW']} W")
-                    insert_data(data, now, supabase)
-                else:
-                    logger.error(f"BAD {response.status_code}: {response.text}")
-            except Exception:
-                # Last-resort safety net: never let an unexpected error kill the
-                # service. Log it and keep polling; the next tick will retry.
-                # (KeyboardInterrupt is a BaseException, so it still exits below.)
-                logger.exception("Unexpected error in poll loop, continuing...")
-
-            time.sleep(5)  # Poll every 5 seconds to limit storage, WAL, and bandwidth usage
+            poll_once(url, headers, supabase, state, heartbeat, sensor, healthcheck_url, clock_floor)
+            time.sleep(poll_interval)
     except KeyboardInterrupt:
         logger.error("Interrupt received, exiting gracefully...")
     finally:

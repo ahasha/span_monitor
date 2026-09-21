@@ -34,23 +34,35 @@ Required in a `.env` file:
 
 ## Architecture
 
-**`main.py`** is the entire service. It:
-1. Polls `http://{SPAN_IP}/api/v1/panel` every second
+**`main.py`** — the service entry point. It:
+1. Polls `http://{SPAN_IP}/api/v1/panel` every `POLL_INTERVAL` seconds (default 5)
 2. Extracts aggregate meter data and per-circuit (branch) data
-3. Inserts two rows per tick into Supabase: one into `main_energy`, one per circuit into `branch_energy`
-4. Wraps API calls with `@retry_on_connection_error()` — exponential backoff for network resilience
+3. Inserts one row into `main_energy` and one row per circuit into `branch_energy`
+4. Counts a tick as successful only when the panel returned 200 **and** both inserts landed
+5. Wraps API calls with `@retry_on_connection_error()` — exponential backoff for network resilience
+
+**`health.py`** — `HealthState` (thread-safe record of time since the last successful
+write) and a `/healthz` endpoint on port 8099. Returns 503 once writes go stale, which
+is what Home Assistant's watchdog uses to restart a silently-stalled container.
+
+**`notify.py`** — best-effort outbound notifications: a healthchecks.io dead-man switch
+ping and a `sensor.span_monitor` status entity. Nothing here may raise, block, or retry
+indefinitely; a monitor that can take down the service is worse than none.
 
 **Database** (Supabase + TimescaleDB):
 - `main_energy` — aggregate grid/panel data, compressed hypertable
 - `branch_energy` — per-circuit measurements, compressed hypertable
 - Continuous aggregate materialized views: `branch_energy_hourly`, `main_energy_hourly`
-- Raw data retention: 1 week; hourly aggregates persist indefinitely
+- Raw data retention: 3 days; hourly aggregates persist indefinitely
 - Schema in `database_setup.sql` and `supabase/migrations/`
 
 **`tesla-sdk/`** — Custom OAuth2 SDK for Tesla's owner API. Uses PKCE-based OAuth2 flow with token caching. Classes: `Client` (auth), `Account`, `Vehicle`, `Energy`. Not currently used by the monitor service.
 
 ## Notes
 
+- Two deployment paths, mutually exclusive: the Home Assistant app (`config.yaml` +
+  `addon-run.sh`, normal operation) and macOS (`run.sh`, development/fallback).
+  Running both at once doubles the rows per tick and corrupts the hourly aggregates.
 - `run.sh` is hardcoded to the local machine path — update if running elsewhere
 - `uv.lock` is committed; use `uv sync` not `pip install`
 - The `scratch.ipynb` and `span.ipynb` notebooks are for ad-hoc analysis of the logged data

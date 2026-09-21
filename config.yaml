@@ -1,0 +1,36 @@
+name: SPAN Monitor
+version: "1.0.0"
+slug: span_monitor
+description: Polls a SPAN electrical panel and logs energy data to Supabase
+url: https://github.com/ahasha/span_monitor
+arch:
+  - aarch64
+startup: application
+boot: auto
+init: false
+homeassistant_api: true
+watchdog: "http://[HOST]:[PORT:8099]/healthz"
+ports:
+  8099/tcp: 8099
+ports_description:
+  8099/tcp: Health endpoint (/healthz) used by the watchdog
+options:
+  span_ip: ""
+  span_api_key: ""
+  supabase_url: ""
+  supabase_key: ""
+  healthcheck_url: ""
+  poll_interval: 5
+  stale_threshold: 300
+  heartbeat_interval: 60
+  sensor_interval: 30
+schema:
+  span_ip: str
+  span_api_key: password
+  supabase_url: url
+  supabase_key: password
+  healthcheck_url: "str?"
+  poll_interval: int(1,60)
+  stale_threshold: int(60,3600)
+  heartbeat_interval: int(10,600)
+  sensor_interval: int(10,600)
