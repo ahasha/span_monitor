@@ -109,3 +109,47 @@ def test_invalidate_removes_cache_and_tolerates_absence(tmp_path):
     invalidate(cache)
     assert not cache.exists()
     invalidate(cache)  # no error
+
+
+def test_cache_records_broker_username_and_registration_time(tmp_path, http, mocker):
+    _, post = http
+    post.return_value = _resp(200, {**REGISTER_OK, "ebusBrokerUsername": "broker-user"})
+    mocker.patch("span_auth.time.time", return_value=1_000_000.0)
+    cache = tmp_path / "auth.json"
+
+    creds = load_or_register("10.0.0.5", "pass", cache)
+
+    assert creds.broker_username == "broker-user"
+    cached = json.loads(cache.read_text())
+    assert cached["broker_username"] == "broker-user"
+    assert cached["registered_at"] == 1_000_000.0
+
+
+def test_legacy_cache_without_username_falls_back_to_serial(tmp_path, http):
+    cache = tmp_path / "auth.json"
+    cache.write_text(json.dumps({"serial_number": "nt-0000-test0", "broker_password": "pw", "mqtt_port": 8883}))
+    creds = load_or_register("10.0.0.5", "pass", cache)
+    assert creds.broker_username == "nt-0000-test0"
+
+
+def test_invalidate_keeps_freshly_registered_credentials(tmp_path, mocker):
+    """A refusal right after registration is the broker lagging or booting, not a
+    bad password: deleting the cache would register another client every restart."""
+    cache = tmp_path / "auth.json"
+    cache.write_text(json.dumps({"registered_at": 1000.0}))
+    mocker.patch("span_auth.time.time", return_value=1000.0 + 60)
+
+    assert invalidate(cache, min_age_seconds=600) is False
+    assert cache.exists()
+
+
+def test_invalidate_removes_old_or_undated_credentials(tmp_path, mocker):
+    mocker.patch("span_auth.time.time", return_value=1000.0 + 601)
+    old = tmp_path / "old.json"
+    old.write_text(json.dumps({"registered_at": 1000.0}))
+    undated = tmp_path / "undated.json"
+    undated.write_text(json.dumps({"broker_password": "pw"}))
+
+    assert invalidate(old, min_age_seconds=600) is True
+    assert invalidate(undated, min_age_seconds=600) is True
+    assert not old.exists() and not undated.exists()

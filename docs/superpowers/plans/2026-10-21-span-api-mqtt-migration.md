@@ -66,7 +66,7 @@ Observations that don't change the mapping:
 
 ### Decisions taken in this plan (confirm during review)
 
-1. **No schema change.** A circuit's row is written under the *lowest* space it occupies as `branch_id`. A 2-pole circuit that v1 wrote as two half-rows (spaces 5 and 7) becomes one whole-circuit row at `branch_id = 5`; space 7 stops receiving rows. Any query that sums a circuit's branch_ids (the HVAC extraction does exactly this) stays correct across the cutover; a query that reads one leg of a 2-pole circuit in isolation would see a step change. Alternative rejected: a new `circuit_energy` table + aggregate keyed on circuit UUID — cleaner long-term, but forces migrations and edits in `archive.py` and `heat_pump_analysis` before the deadline.
+1. **No schema change.** A circuit's row is written under the *lowest* space it occupies as `branch_id`. A 2-pole circuit that v1 wrote as two half-rows (spaces 5 and 7) becomes one whole-circuit row at `branch_id = 5`; space 7 stops receiving rows. Any query that sums a circuit's **power** across branch_ids (the HVAC extraction does exactly this) stays correct across the cutover. Energy counters are per-row cumulative, so a summed counter stays continuous only if no hourly bucket mixes v1 and 2.0.0 rows (the aggregate takes `max()` per branch; a mixed bucket double-counts the second leg — about 1.3 MWh for HVAC). Task 8 therefore cuts over on an hour boundary; a query that reads one leg of a 2-pole circuit in isolation would see a step change. Alternative rejected: a new `circuit_energy` table + aggregate keyed on circuit UUID — cleaner long-term, but forces migrations and edits in `archive.py` and `heat_pump_analysis` before the deadline.
 2. **Credentials: configure the `hopPassphrase`, register once, cache the result.** The cache lives at `SPAN_AUTH_CACHE` (HA: `/data/span_auth.json`, persistent across restarts; macOS default `~/.span_monitor_auth.json`). Re-register only when the cache is missing or the broker rejects the cached password. Alternative rejected: configuring `ebusBrokerPassword` directly — fewer moving parts, but SPAN says the two values "will likely" diverge and a passphrase regeneration would require a manual reconfigure.
 3. **Keep the tick loop.** The MQTT client only maintains state; inserts still happen once per `POLL_INTERVAL`, so row density, aggregates, and the health/heartbeat/sensor layers are untouched.
 4. **Cutover by dry run, not by running in parallel.** CLAUDE.md warns that two writers corrupt the hourly aggregates. Task 6 adds `SPAN_DRY_RUN=1` (build rows, log them, insert nothing) so the new path can run next to the live v1 service and its output can be compared.
@@ -1484,7 +1484,7 @@ select time, sum(instant_power_w) from branch_energy group by time order by time
 
 Expected: same sign, magnitudes within a few percent.
 
-- [ ] **Step 2:** In HA: set `span_passphrase`, `dry_run: false`, upgrade to 2.0.0, start. Record the UTC cutover time.
+- [ ] **Step 2:** Cut over on an hour boundary, so no hourly bucket holds both v1 per-leg counters and 2.0.0 whole-circuit counters. Shortly before HH:00, **stop** the 1.x app. Pull and rebuild to 2.0.0, set `span_passphrase` (the first start without it fails with "Required option 'span_passphrase' is not set"), keep `dry_run: false`, and **start it after HH:00**. Record the UTC cutover hour. The few minutes of gap only lower that hour's `num_measurements`.
 - [ ] **Step 3:** After 2 hours, check continuity in the hourly aggregate — no gap, no doubled `num_measurements`, and the HVAC series (`branch_id in (5, 7)`) continuous when summed:
 
 ```sql
@@ -1493,5 +1493,13 @@ select time, sum(avg_instant_power_w) from branch_energy_hourly
  where branch_id in (5, 7) group by time order by time desc limit 6;
 ```
 
-Expected: ~720 measurements/hour; HVAC sum continuous across the cutover hour (the per-branch split changes, the sum does not).
+```sql
+-- Energy counters summed over each 2-pole circuit must not jump at the cutover hour.
+select time, sum(exported_active_energy_wh) as hvac_exported_wh
+  from branch_energy_hourly
+ where branch_id in (5, 7) and time > now() - interval '6 hours'
+ group by time order by time;
+```
+
+Expected: ~720 measurements/hour; HVAC power sum continuous across the cutover hour; `hvac_exported_wh` keeps rising by roughly one hour's consumption (a jump of ~1.3 MWh means an hour mixed v1 and 2.0.0 rows — record that hour as bad for energy columns in heat_pump_analysis).
 - [ ] **Step 4:** Add a one-line note with the cutover timestamp to `heat_pump_analysis` (its README or handoff) so the 2-pole split change is on record next to the analysis that consumes the data. Close issue #3 referencing the merge commit.

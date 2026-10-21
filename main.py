@@ -246,8 +246,11 @@ if __name__ == "__main__":
         sys.exit(1)
 
     def on_auth_failure():
-        logger.error("Broker rejected cached credentials; clearing cache and exiting to re-register")
-        invalidate(auth_cache)
+        if invalidate(auth_cache, min_age_seconds=600):
+            logger.error("Broker rejected cached credentials; cleared the cache, exiting to re-register")
+        else:
+            logger.error("Broker rejected credentials registered under 10 minutes ago; "
+                         "keeping them and exiting to retry rather than registering again")
         os._exit(1)  # runs on paho's thread, where sys.exit would only end that thread
 
     snapshot = HomieSnapshot(creds.serial_number)

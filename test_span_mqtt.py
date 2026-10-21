@@ -6,7 +6,7 @@ from homie import HomieSnapshot
 from span_auth import SpanCredentials
 from span_mqtt import SpanMqtt
 
-CREDS = SpanCredentials("nt-0000-test0", "brokerpw", 8883, Path("/tmp/ca.crt"))
+CREDS = SpanCredentials("nt-0000-test0", "brokerpw", 8883, Path("/tmp/ca.crt"), broker_username="broker-user")
 
 
 def make(on_auth_failure=None):
@@ -23,7 +23,7 @@ def rc(value, failure=False):
 def test_start_configures_tls_auth_and_connects():
     m, client, _ = make()
     m.start()
-    client.username_pw_set.assert_called_once_with("nt-0000-test0", "brokerpw")
+    client.username_pw_set.assert_called_once_with("broker-user", "brokerpw")
     assert client.tls_set.call_args.kwargs["ca_certs"] == "/tmp/ca.crt"
     client.reconnect_delay_set.assert_called_once_with(min_delay=1, max_delay=60)
     client.connect_async.assert_called_once_with("10.0.0.5", 8883, keepalive=60)

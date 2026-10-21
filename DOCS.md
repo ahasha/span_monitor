@@ -8,14 +8,20 @@ local MQTT broker) and writes aggregate and per-circuit energy data to Supabase
 
 2.0.0 replaces SPAN's undocumented `/api/v1` REST API, which SPAN removes on
 2026-12-31, with the supported SPAN API. The `span_api_key` option is gone;
-set `span_passphrase` before starting 2.0.0. Find it in the SPAN Home app.
-On first start the app registers itself with the
+set `span_passphrase` after upgrading (the first start after the upgrade fails
+with "Required option 'span_passphrase' is not set" until you do). Find it in
+the SPAN Home app. On first start the app registers itself with the
 panel as a client named `span_monitor-<timestamp>` and caches the resulting
 credentials in `/data/span_auth.json`, so later restarts do not register again.
 
 A 2-pole circuit (e.g. one on spaces 5 and 7) is now stored as one
 `branch_energy` row under its lowest space (5) instead of one row per space.
-Sums over a circuit's spaces are unchanged. Columns with no SPAN API
+Power summed over a circuit's spaces is unchanged. Energy counters are
+cumulative per row, so space 5's counter steps up by space 7's lifetime total
+while space 7's series ends; their sum is continuous **only if no hour contains
+rows from both versions**, because the hourly aggregate takes `max()` per
+space. Stop the 1.x app before an hour ends and start 2.0.0 after the next
+hour begins. Columns with no SPAN API
 equivalent (`grid_sample_*_ms`, `dsm_*`, `current_run_config`,
 `measure_*`, `is_measure_valid`) are NULL from 2.0.0 on.
 

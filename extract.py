@@ -6,9 +6,13 @@ the evidence for it are in
 docs/superpowers/plans/2026-10-21-span-api-mqtt-migration.md.
 
 A circuit is written under the lowest breaker space it occupies. v1 wrote a
-2-pole circuit as one row per space; the SPAN API meters the circuit as a
-whole, so the second space simply stops receiving rows. Sums over a
-circuit's branch_ids are unaffected.
+2-pole circuit as one row per space, each with that leg's own counters; the
+SPAN API meters the circuit as a whole, so the second space stops receiving
+rows and the first space's energy counters step up by the second leg's
+lifetime total. Sums over a circuit's branch_ids stay continuous only if no
+hourly bucket holds both v1 and 2.0.0 rows; the hourly aggregate takes max()
+of each branch's counter, so a mixed bucket double-counts the second leg.
+Cut over on an hour boundary (DOCS.md, "Upgrading to 2.0.0").
 """
 import logging
 

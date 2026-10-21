@@ -38,7 +38,7 @@ class SpanMqtt:
         self._client.on_message = self._on_message
 
     def start(self) -> None:
-        self._client.username_pw_set(self._creds.serial_number, self._creds.broker_password)
+        self._client.username_pw_set(self._creds.broker_username, self._creds.broker_password)
         self._client.tls_set(ca_certs=str(self._creds.ca_cert_path), tls_version=ssl.PROTOCOL_TLS_CLIENT)
         self._client.reconnect_delay_set(min_delay=1, max_delay=60)
         self._client.connect_async(self._ip, self._creds.mqtt_port, keepalive=60)

@@ -29,6 +29,7 @@ class SpanCredentials:
     broker_password: str
     mqtt_port: int
     ca_cert_path: Path
+    broker_username: str
 
 
 def _get_serial(ip: str) -> str:
@@ -88,15 +89,35 @@ def load_or_register(ip: str, passphrase: str, cache_path: Path) -> SpanCredenti
         logger.info("Registering span_monitor as a SPAN API client")
         out = _register(ip, passphrase)
         cached = {"serial_number": out["serialNumber"],
+                  "broker_username": out["ebusBrokerUsername"],
                   "broker_password": out["ebusBrokerPassword"],
-                  "mqtt_port": out["ebusBrokerMqttsPort"]}
+                  "mqtt_port": out["ebusBrokerMqttsPort"],
+                  "registered_at": time.time()}
         _write_cache(cache_path, cached)
 
     return SpanCredentials(serial_number=cached["serial_number"],
                            broker_password=cached["broker_password"],
                            mqtt_port=int(cached.get("mqtt_port", 8883)),
-                           ca_cert_path=ca_path)
+                           ca_cert_path=ca_path,
+                           # Caches written before broker_username was stored:
+                           # SPAN documents the username as the panel serial.
+                           broker_username=cached.get("broker_username") or cached["serial_number"])
 
 
-def invalidate(cache_path: Path) -> None:
+def invalidate(cache_path: Path, min_age_seconds: float = 0) -> bool:
+    """Delete cached credentials unless they were registered under min_age_seconds ago.
+
+    A broker that refuses credentials minutes after issuing them is lagging
+    or still booting, not rejecting a stale password. Deleting the cache then
+    would register another client on every restart, and each one is a
+    permanent entry on the panel. Undated caches count as old. Returns True
+    if the cache was deleted.
+    """
+    cached = _read_cache(cache_path)
+    if cached is None and not cache_path.exists():
+        return False
+    registered_at = (cached or {}).get("registered_at")
+    if registered_at is not None and time.time() - registered_at < min_age_seconds:
+        return False
     cache_path.unlink(missing_ok=True)
+    return True

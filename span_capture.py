@@ -32,7 +32,7 @@ def main(seconds):
 
     messages: dict[str, str] = {}
     client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id=f"span_capture-{int(time.time())}")
-    client.username_pw_set(creds.serial_number, creds.broker_password)
+    client.username_pw_set(creds.broker_username, creds.broker_password)
     client.tls_set(ca_certs=str(creds.ca_cert_path), tls_version=ssl.PROTOCOL_TLS_CLIENT)
     client.on_connect = lambda c, u, f, rc, p: (click.echo(f"MQTT connect: {rc}"), c.subscribe("ebus/5/#"))
     client.on_message = lambda c, u, m: messages.__setitem__(m.topic, m.payload.decode("utf-8", "replace"))
