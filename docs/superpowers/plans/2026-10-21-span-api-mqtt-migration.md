@@ -25,24 +25,44 @@ There is **no v2 REST replacement** for `/api/v1/panel`. SPAN's migration table 
 
 ### Field mapping (v1 → MQTT)
 
-`P` = panel device, `UP` = lugs with direction UPSTREAM, `DN` = lugs with direction DOWNSTREAM, `C` = a circuit. **Rows marked ⚠ are provisional until Task 1 confirms them against live data.**
+`P` = panel device, `UP` = lugs with direction UPSTREAM, `DN` = lugs with direction DOWNSTREAM, `C` = a circuit. **All rows confirmed against live data in Task 1 (2026-10-21) — evidence below the table.**
 
 | Table.column | v1 source | MQTT source |
 |---|---|---|
 | main_energy.relay_state | `mainRelayState` | `P/status/relay` (`UNKNOWN` → NULL) |
-| main_energy.main_meter_produced_energy_wh ⚠ | `mainMeterEnergy.producedEnergyWh` | `UP/meter/exported-energy` |
-| main_energy.main_meter_consumed_energy_wh ⚠ | `mainMeterEnergy.consumedEnergyWh` | `UP/meter/imported-energy` |
-| main_energy.instant_grid_power_w ⚠ | `instantGridPowerW` | `UP/meter/active-power` |
+| main_energy.main_meter_produced_energy_wh | `mainMeterEnergy.producedEnergyWh` | `UP/meter/exported-energy` |
+| main_energy.main_meter_consumed_energy_wh | `mainMeterEnergy.consumedEnergyWh` | `UP/meter/imported-energy` |
+| main_energy.instant_grid_power_w | `instantGridPowerW` | `UP/meter/active-power` |
 | main_energy.feed_through_power_w | `feedthroughPowerW` | `DN/meter/active-power` |
-| main_energy.feed_through_produced_energy_wh ⚠ | `feedthroughEnergy.producedEnergyWh` | `DN/meter/exported-energy` |
-| main_energy.feed_through_consumed_energy_wh ⚠ | `feedthroughEnergy.consumedEnergyWh` | `DN/meter/imported-energy` |
+| main_energy.feed_through_produced_energy_wh | `feedthroughEnergy.producedEnergyWh` | `DN/meter/exported-energy` |
+| main_energy.feed_through_consumed_energy_wh | `feedthroughEnergy.consumedEnergyWh` | `DN/meter/imported-energy` |
 | main_energy.grid_sample_start_ms / _end_ms, dsm_grid_state, dsm_state, current_run_config | v1 only | NULL (no equivalent) |
 | branch_energy.branch_id | `branches[].id` (one row per space) | `min(C/info/spaces)` (one row per circuit) |
 | branch_energy.relay_state | `relayState` | `C/switch/relay` (`UNKNOWN` → NULL) |
 | branch_energy.instant_power_w | `instantPowerW` | `C/meter/active-power` |
-| branch_energy.imported_active_energy_wh ⚠ | `importedActiveEnergyWh` | `C/meter/imported-energy` |
-| branch_energy.exported_active_energy_wh ⚠ | `exportedActiveEnergyWh` | `C/meter/exported-energy` |
+| branch_energy.imported_active_energy_wh | `importedActiveEnergyWh` | `C/meter/imported-energy` |
+| branch_energy.exported_active_energy_wh | `exportedActiveEnergyWh` | `C/meter/exported-energy` |
 | branch_energy.measure_start_ts_ms / measure_duration_ms / is_measure_valid | v1 only | NULL |
+
+**Task 1 evidence** (panel firmware spanos3/r202639/03, v1 and MQTT read within ~1 s; fixtures in `tests/fixtures/`):
+
+| Column | v1 | MQTT |
+|---|---|---|
+| main_meter_consumed_energy_wh | 10959377.0 | UP imported-energy 10959377.0 |
+| main_meter_produced_energy_wh | 0.119 | UP exported-energy 0.1 |
+| instant_grid_power_w | 1244.96 | UP active-power 1252.7 (`power-flows/grid` read −5: **not** a substitute) |
+| feed_through_consumed_energy_wh | 10948657.98 | DN imported-energy 10948658.0 |
+| feed_through_produced_energy_wh | 10890975.95 | DN exported-energy 10890975.6 |
+| feed_through_power_w | 16.6 | DN active-power 3.3 (same sign; small, noisy value) |
+| branch imported/exported (all 25 circuits) | sum over the circuit's spaces | equal to ≤0.2 Wh, e.g. HVAC 2593126.1 vs 2593125.9 |
+| branch instant_power_w | sum over spaces | same sign, within a few W, e.g. HVAC −834.3 vs −835.0 |
+
+Also confirmed: every circuit's `info/spaces` equals its branch ids in `branch_to_circuit.csv` (25/25), so Decision 1 holds. Main relay and all circuit relays `CLOSED` in both.
+
+Observations that don't change the mapping:
+- v1 had 32 branch rows; MQTT has 25 circuits covering 31 spaces. Space 32 is empty (−0.05 W) and stops getting rows.
+- Circuits that v1 reports at only a few watts (|W| ≲ 4) read exactly `0.0` on MQTT (10 circuits; about 15 W in absolute terms, about 8 W of net load, with v1 noise in both directions). The panel appears to zero small readings or not republish them. Energy counters are unaffected; hourly average power for near-idle circuits will read slightly lower after cutover.
+- The panel also publishes a `bess`, a `mid`, and a `pv` device. Nothing in the current schema needs them. v1's `dsmGridState`/`dsmState` (`DSM_GRID_UP` / `DSM_ON_GRID`) loosely correspond to MID `grid/islanding-state`, but use a different vocabulary, so they stay NULL as planned.
 
 ### Decisions taken in this plan (confirm during review)
 
