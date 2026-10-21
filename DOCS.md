@@ -76,7 +76,9 @@ grants full control of the panel, including switching circuits off.
 
 The panel's CA certificate can only be downloaded over plain HTTP, so the app
 trusts it once, at registration, and pins it in `/data/span_auth.json`; later
-starts never adopt a different one. If the log says the panel's CA certificate
+starts never adopt a different one. Everything else uses TLS verified against
+that CA: registration (which sends the passphrase), the start-up identity
+check, and the MQTT connection. Install the app while on your home network. If the log says the panel's CA certificate
 differs from the pinned one, the app stops connecting. SPAN advises
 investigating before trusting a changed CA (a panel reset can legitimately
 change it). Once satisfied, start once with `trust_new_panel_ca` on, then turn

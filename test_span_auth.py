@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 from unittest.mock import Mock
 
 import pytest
@@ -232,3 +233,57 @@ def test_trust_new_ca_repins_without_registering(tmp_path, http):
     post.assert_not_called()
     assert creds.ca_cert_path.read_text() == OTHER_PEM
     assert json.loads(cache.read_text())["ca_pem"] == OTHER_PEM
+
+
+def test_serial_check_and_registration_use_https_verified_with_ca(tmp_path, http):
+    get, post = http
+    seen = {}
+    real_get = get.side_effect
+
+    def spy_get(url, **kw):
+        if url.endswith("/api/v2/status"):
+            seen["status_url"], seen["status_verify"] = url, kw.get("verify")
+            seen["ca_at_status"] = Path(kw["verify"]).read_text() if kw.get("verify") else None
+        return real_get(url, **kw)
+
+    get.side_effect = spy_get
+    cache = tmp_path / "auth.json"
+    creds = load_or_register("10.0.0.5", "pass", cache)
+
+    assert seen["status_url"] == "https://10.0.0.5/api/v2/status"
+    assert seen["status_verify"] == str(creds.ca_cert_path)
+    assert seen["ca_at_status"] == PEM          # CA written before it is relied on
+    assert post.call_args.args[0] == "https://10.0.0.5/api/v2/auth/register"
+    assert post.call_args.kwargs["verify"] == str(creds.ca_cert_path)
+    # Only the CA download itself is plain HTTP.
+    http_urls = [c.args[0] for c in get.call_args_list if c.args[0].startswith("http://")]
+    assert http_urls == ["http://10.0.0.5/api/v2/certificate/ca"]
+
+
+def test_tls_verification_failure_is_an_auth_error_not_a_retry(tmp_path, http):
+    import requests
+    get, post = http
+    cache = tmp_path / "auth.json"
+    load_or_register("10.0.0.5", "pass", cache)
+    post.reset_mock()
+
+    def fake_get(url, **kw):
+        if url.startswith("https://"):
+            raise requests.exceptions.SSLError("certificate verify failed")
+        return _resp(200, text=PEM)
+
+    get.side_effect = fake_get
+    with pytest.raises(SpanAuthError, match="SPAN_TRUST_NEW_CA"):
+        load_or_register("10.0.0.5", "pass", cache)
+    post.assert_not_called()
+
+
+def test_tls_failure_during_registration_never_sends_passphrase(tmp_path, http):
+    import requests
+    get, post = http
+    get.side_effect = lambda url, **kw: (_ for _ in ()).throw(requests.exceptions.SSLError("bad"))  \
+        if url.startswith("https://") else _resp(200, text=PEM)
+
+    with pytest.raises(SpanAuthError):
+        load_or_register("10.0.0.5", "pass", tmp_path / "auth.json")
+    post.assert_not_called()

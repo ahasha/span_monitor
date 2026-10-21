@@ -48,8 +48,10 @@ Optional: `SPAN_AUTH_CACHE` (default `~/.span_monitor_auth.json`; HA uses `/data
 
 **`span_auth.py`** — `GET /api/v2/status`, `POST /api/v2/auth/register` with the passphrase,
 CA-cert download. Caches the broker password (0600) so restarts don't register new clients,
-and pins the CA cert (HTTP-only, so trusted once at registration). A changed CA is logged, never
-adopted, unless `SPAN_TRUST_NEW_CA=1`.
+and pins the CA cert (HTTP-only, so trusted once at registration). The serial check and
+registration (which sends the passphrase) then use HTTPS verified against it; a TLS failure is a
+`SpanAuthError`, not a retried network error. A changed CA is logged, never adopted, unless
+`SPAN_TRUST_NEW_CA=1`.
 
 **`span_mqtt.py`** — paho client (TLS to port 8883, auto-reconnect) subscribed to `ebus/5/#`.
 A rejected cached password clears the cache and exits the process so the restart re-registers.

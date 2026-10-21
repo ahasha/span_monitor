@@ -6,7 +6,9 @@ not add another client. The cache holds the broker password, so it is written
 0600 and never logged.
 
 The panel's CA certificate can only be fetched over plain HTTP, so it is
-trusted once, at registration, and pinned in the cache. SPAN keeps the CA
+trusted once, at registration, and pinned in the cache. Everything else -
+the serial check and registration, which sends the passphrase - goes over
+HTTPS verified against that CA. SPAN keeps the CA
 stable (server certificates renew and follow IP changes, the CA does not) and
 advises investigating before trusting a changed one. So a changed CA is
 reported, never adopted, unless trust_new_ca is set.
@@ -38,8 +40,21 @@ class SpanCredentials:
     broker_username: str
 
 
-def _get_serial(ip: str) -> str:
-    r = requests.get(f"http://{ip}/api/v2/status", timeout=TIMEOUT)
+TLS_FAILED = (
+    "TLS verification of the panel failed with the pinned CA certificate. If the "
+    "log above says the panel's CA changed, SPAN advises investigating before "
+    "trusting it; if the change is expected, start once with SPAN_TRUST_NEW_CA=1 "
+    "(Home Assistant option trust_new_panel_ca)."
+)
+
+
+def _get_serial(ip: str, ca_path: Path) -> str:
+    try:
+        r = requests.get(f"https://{ip}/api/v2/status", verify=str(ca_path), timeout=TIMEOUT)
+    except requests.exceptions.SSLError as e:
+        # SSLError is a ConnectionError; left alone, the startup retry would
+        # treat a CA mismatch as a network blip and retry forever.
+        raise SpanAuthError(f"{TLS_FAILED} ({e})") from e
     if r.status_code != 200:
         raise SpanAuthError(f"GET /api/v2/status returned {r.status_code}; does the panel firmware support SPAN API?")
     return r.json()["serialNumber"]
@@ -70,13 +85,17 @@ def _warn_if_ca_changed(ip: str, pinned: str) -> None:
         )
 
 
-def _register(ip: str, passphrase: str) -> dict:
+def _register(ip: str, passphrase: str, ca_path: Path) -> dict:
     # A fresh name each time: re-registering an existing name is rejected, and
     # we only get here when the cache is missing or invalid.
     body = {"name": f"span_monitor-{int(time.time())}",
             "description": "span_monitor energy logger",
             "hopPassphrase": passphrase}
-    r = requests.post(f"http://{ip}/api/v2/auth/register", json=body, timeout=TIMEOUT)
+    try:
+        r = requests.post(f"https://{ip}/api/v2/auth/register", json=body,
+                          verify=str(ca_path), timeout=TIMEOUT)
+    except requests.exceptions.SSLError as e:
+        raise SpanAuthError(f"{TLS_FAILED} ({e})") from e
     if r.status_code != 200:
         raise SpanAuthError(f"POST /api/v2/auth/register returned {r.status_code}: {r.text[:200]}")
     out = r.json()
@@ -102,25 +121,35 @@ def _read_cache(cache_path: Path) -> dict | None:
 
 def load_or_register(ip: str, passphrase: str, cache_path: Path,
                      trust_new_ca: bool = False) -> SpanCredentials:
-    serial = _get_serial(ip)
+    cached = _read_cache(cache_path) or {}
+    have_creds = bool(cached.get("serial_number") and cached.get("broker_password"))
 
-    cached = _read_cache(cache_path)
-    if cached and cached.get("serial_number") == serial and cached.get("broker_password"):
-        logger.info("Using cached SPAN API credentials")
-        if trust_new_ca or not cached.get("ca_pem"):
-            if trust_new_ca:
-                logger.warning("SPAN_TRUST_NEW_CA set: pinning the CA certificate the panel serves now")
-            else:
-                logger.info("Pinning the panel CA certificate (cache predates CA pinning)")
-            cached["ca_pem"] = _fetch_ca_cert(ip)
-            _write_cache(cache_path, cached)
-        else:
-            _warn_if_ca_changed(ip, cached["ca_pem"])
+    # 1. Settle which CA to trust. This is the only plain-HTTP step.
+    if have_creds and cached.get("ca_pem") and not trust_new_ca:
+        ca_pem = cached["ca_pem"]
+        _warn_if_ca_changed(ip, ca_pem)
     else:
-        # Fetch the CA first: if it fails, no client has been created.
+        if trust_new_ca:
+            logger.warning("SPAN_TRUST_NEW_CA set: pinning the CA certificate the panel serves now")
+        elif have_creds:
+            logger.info("Pinning the panel CA certificate (cache predates CA pinning)")
         ca_pem = _fetch_ca_cert(ip)
+
+    # paho and requests both need a file; it is always rewritten from the CA in hand.
+    ca_path = cache_path.with_suffix(".ca.crt")
+    ca_path.parent.mkdir(parents=True, exist_ok=True)
+    ca_path.write_text(ca_pem)
+
+    # 2. Everything else is HTTPS verified against that CA.
+    serial = _get_serial(ip, ca_path)
+    if have_creds and cached["serial_number"] == serial:
+        logger.info("Using cached SPAN API credentials")
+        if cached.get("ca_pem") != ca_pem:
+            cached["ca_pem"] = ca_pem
+            _write_cache(cache_path, cached)
+    else:
         logger.info("Registering span_monitor as a SPAN API client")
-        out = _register(ip, passphrase)
+        out = _register(ip, passphrase, ca_path)
         cached = {"serial_number": out["serialNumber"],
                   "broker_username": out["ebusBrokerUsername"],
                   "broker_password": out["ebusBrokerPassword"],
@@ -128,11 +157,6 @@ def load_or_register(ip: str, passphrase: str, cache_path: Path,
                   "registered_at": time.time(),
                   "ca_pem": ca_pem}
         _write_cache(cache_path, cached)
-
-    # paho needs a file; it is always rewritten from the pinned copy.
-    ca_path = cache_path.with_suffix(".ca.crt")
-    ca_path.parent.mkdir(parents=True, exist_ok=True)
-    ca_path.write_text(cached["ca_pem"])
 
     return SpanCredentials(serial_number=cached["serial_number"],
                            broker_password=cached["broker_password"],
