@@ -48,5 +48,6 @@ uv sync
 
 - `maintain.py` — storage diagnostics and manual compression
 - `archive.py` — incremental parquet export of the hourly aggregates
+- `compare_dry_run.py` — compare a 2.0.0 dry-run log with the rows the live app is writing (read-only)
 
 Both need the `tools` dependency group, installed by default with `uv sync`.
