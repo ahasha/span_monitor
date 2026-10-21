@@ -26,6 +26,10 @@ class HomieSnapshot:
         self._connected = False
         self._last_message = None
 
+    @property
+    def root(self) -> str:
+        return self._root
+
     def set_connected(self, connected: bool) -> None:
         with self._lock:
             self._connected = connected
