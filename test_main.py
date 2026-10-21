@@ -354,6 +354,8 @@ def test_poll_once_dry_run_logs_and_does_not_insert(mocker, caplog):
 
     mock_insert.assert_not_called()
     assert "DRY RUN" in caplog.text
+    # Every circuit row is logged, so the mapping can be checked by eye.
+    assert "DRY RUN branch 5: relay=CLOSED power_w=-500.0 imported_wh=1.5 exported_wh=9000.25" in caplog.text
 
 
 def test_insert_data_inserts_prebuilt_rows():

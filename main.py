@@ -164,6 +164,13 @@ def poll_once(
                         f"DRY RUN main={main_row} branches={len(branch_rows)} "
                         f"sum_branch_w={sum(b['instant_power_w'] for b in branch_rows):.1f}"
                     )
+                    for b in branch_rows:
+                        logger.info(
+                            f"DRY RUN branch {b['branch_id']}: relay={b['relay_state']} "
+                            f"power_w={b['instant_power_w']} "
+                            f"imported_wh={b['imported_active_energy_wh']} "
+                            f"exported_wh={b['exported_active_energy_wh']}"
+                        )
                     success = True
                 elif insert_data(main_row, branch_rows, supabase):
                     logger.info(f"OK: {main_row['instant_grid_power_w']} W")
