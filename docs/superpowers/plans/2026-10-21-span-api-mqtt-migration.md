@@ -1501,5 +1501,5 @@ select time, sum(exported_active_energy_wh) as hvac_exported_wh
  group by time order by time;
 ```
 
-Expected: ~720 measurements/hour; HVAC power sum continuous across the cutover hour; `hvac_exported_wh` keeps rising by roughly one hour's consumption (a jump of ~1.3 MWh means an hour mixed v1 and 2.0.0 rows — record that hour as bad for energy columns in heat_pump_analysis).
+Expected: `num_measurements` around 650 (1.x ticks every ~5.47 s) before the cutover and somewhat higher after (2.0.0 skips the panel HTTP request; the dry run ticked every 5.0 s), not a doubling; HVAC power sum continuous across the cutover hour; `hvac_exported_wh` keeps rising by roughly one hour's consumption (a jump of ~1.3 MWh means an hour mixed v1 and 2.0.0 rows — record that hour as bad for energy columns in heat_pump_analysis).
 - [ ] **Step 4:** Add a one-line note with the cutover timestamp to `heat_pump_analysis` (its README or handoff) so the 2-pole split change is on record next to the analysis that consumes the data. Close issue #3 referencing the merge commit.
