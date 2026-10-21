@@ -4,6 +4,12 @@ Registration creates a named client on the panel, so it happens once and the
 result is cached; a restart (or a watchdog-triggered container restart) must
 not add another client. The cache holds the broker password, so it is written
 0600 and never logged.
+
+The panel's CA certificate can only be fetched over plain HTTP, so it is
+trusted once, at registration, and pinned in the cache. SPAN keeps the CA
+stable (server certificates renew and follow IP changes, the CA does not) and
+advises investigating before trusting a changed one. So a changed CA is
+reported, never adopted, unless trust_new_ca is set.
 """
 import json
 import logging
@@ -39,13 +45,29 @@ def _get_serial(ip: str) -> str:
     return r.json()["serialNumber"]
 
 
-def _fetch_ca_cert(ip: str, dest: Path) -> Path:
+def _fetch_ca_cert(ip: str) -> str:
     r = requests.get(f"http://{ip}/api/v2/certificate/ca", timeout=TIMEOUT)
     if r.status_code != 200 or "BEGIN CERTIFICATE" not in r.text:
         raise SpanAuthError(f"Could not download the panel CA certificate (HTTP {r.status_code})")
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    dest.write_text(r.text)
-    return dest
+    return r.text
+
+
+def _warn_if_ca_changed(ip: str, pinned: str) -> None:
+    """Best effort: a changed CA would otherwise surface only as endless TLS
+    failures with no stated cause. Never blocks startup."""
+    try:
+        served = _fetch_ca_cert(ip)
+    except (requests.exceptions.RequestException, SpanAuthError) as e:
+        logger.warning(f"Could not compare the panel CA certificate with the pinned one: {e}")
+        return
+    if served.strip() != pinned.strip():
+        logger.error(
+            "The panel's CA certificate differs from the one pinned at registration; "
+            "MQTT connections will fail TLS verification. SPAN advises investigating "
+            "before trusting a changed CA. If the change is expected (e.g. a panel "
+            "reset), start once with SPAN_TRUST_NEW_CA=1 (Home Assistant option "
+            "trust_new_panel_ca) to pin the new one."
+        )
 
 
 def _register(ip: str, passphrase: str) -> dict:
@@ -78,22 +100,39 @@ def _read_cache(cache_path: Path) -> dict | None:
         return None
 
 
-def load_or_register(ip: str, passphrase: str, cache_path: Path) -> SpanCredentials:
+def load_or_register(ip: str, passphrase: str, cache_path: Path,
+                     trust_new_ca: bool = False) -> SpanCredentials:
     serial = _get_serial(ip)
-    ca_path = _fetch_ca_cert(ip, cache_path.with_suffix(".ca.crt"))
 
     cached = _read_cache(cache_path)
     if cached and cached.get("serial_number") == serial and cached.get("broker_password"):
         logger.info("Using cached SPAN API credentials")
+        if trust_new_ca or not cached.get("ca_pem"):
+            if trust_new_ca:
+                logger.warning("SPAN_TRUST_NEW_CA set: pinning the CA certificate the panel serves now")
+            else:
+                logger.info("Pinning the panel CA certificate (cache predates CA pinning)")
+            cached["ca_pem"] = _fetch_ca_cert(ip)
+            _write_cache(cache_path, cached)
+        else:
+            _warn_if_ca_changed(ip, cached["ca_pem"])
     else:
+        # Fetch the CA first: if it fails, no client has been created.
+        ca_pem = _fetch_ca_cert(ip)
         logger.info("Registering span_monitor as a SPAN API client")
         out = _register(ip, passphrase)
         cached = {"serial_number": out["serialNumber"],
                   "broker_username": out["ebusBrokerUsername"],
                   "broker_password": out["ebusBrokerPassword"],
                   "mqtt_port": out["ebusBrokerMqttsPort"],
-                  "registered_at": time.time()}
+                  "registered_at": time.time(),
+                  "ca_pem": ca_pem}
         _write_cache(cache_path, cached)
+
+    # paho needs a file; it is always rewritten from the pinned copy.
+    ca_path = cache_path.with_suffix(".ca.crt")
+    ca_path.parent.mkdir(parents=True, exist_ok=True)
+    ca_path.write_text(cached["ca_pem"])
 
     return SpanCredentials(serial_number=cached["serial_number"],
                            broker_password=cached["broker_password"],

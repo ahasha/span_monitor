@@ -38,6 +38,7 @@ equivalent (`grid_sample_*_ms`, `dsm_*`, `current_run_config`,
 | `stale_threshold` | no | Seconds without a successful write before the watchdog restarts the app (default 300) |
 | `heartbeat_interval` | no | Minimum seconds between heartbeat pings (default 60) |
 | `sensor_interval` | no | Minimum seconds between status sensor updates (default 30) |
+| `trust_new_panel_ca` | no | Pin the CA certificate the panel serves now, replacing the one pinned at registration (default off). Turn on for one start only, after confirming the change is expected; see Security. |
 | `dry_run` | no | Log the rows each tick would write instead of inserting them (default off). Heartbeat pings are suppressed while on. |
 
 ## Alerting
@@ -72,6 +73,14 @@ cached in `/data/span_auth.json`. Both files are included in Home Assistant
 backups, which are commonly synced to cloud storage or a NAS, so
 password-protect your Home Assistant backups accordingly. The passphrase
 grants full control of the panel, including switching circuits off.
+
+The panel's CA certificate can only be downloaded over plain HTTP, so the app
+trusts it once, at registration, and pins it in `/data/span_auth.json`; later
+starts never adopt a different one. If the log says the panel's CA certificate
+differs from the pinned one, the app stops connecting. SPAN advises
+investigating before trusting a changed CA (a panel reset can legitimately
+change it). Once satisfied, start once with `trust_new_panel_ca` on, then turn
+it off.
 
 Using a Supabase key scoped to inserts on `main_energy` and `branch_energy`
 is strongly preferable to reusing the service-role key: the service-role key

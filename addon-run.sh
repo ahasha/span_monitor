@@ -24,6 +24,11 @@ if bashio::config.true 'dry_run'; then
     bashio::log.warning "Dry run: rows will be logged, not inserted"
 fi
 
+if bashio::config.true 'trust_new_panel_ca'; then
+    export SPAN_TRUST_NEW_CA=1
+    bashio::log.warning "Pinning the panel's current CA certificate; turn trust_new_panel_ca off again afterwards"
+fi
+
 # Optional: no URL means no heartbeat, and ping_healthcheck no-ops.
 if bashio::config.has_value 'healthcheck_url'; then
     export HEALTHCHECK_URL="$(bashio::config 'healthcheck_url')"

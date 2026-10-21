@@ -247,7 +247,10 @@ if __name__ == "__main__":
     # A rejected passphrase is fatal: retrying cannot fix it, and a
     # crash-looping container is visible where a silently idle one is not.
     try:
-        creds = retry_on_connection_error()(load_or_register)(span_ip, span_passphrase, auth_cache)
+        creds = retry_on_connection_error()(load_or_register)(
+            span_ip, span_passphrase, auth_cache,
+            trust_new_ca=os.getenv("SPAN_TRUST_NEW_CA", "") == "1",
+        )
     except SpanAuthError as e:
         logger.error(f"SPAN API authentication failed: {e}")
         sys.exit(1)

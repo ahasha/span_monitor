@@ -25,6 +25,7 @@ options:
   heartbeat_interval: 60
   sensor_interval: 30
   dry_run: false
+  trust_new_panel_ca: false
 schema:
   span_ip: str
   span_passphrase: password
@@ -36,3 +37,4 @@ schema:
   heartbeat_interval: int(10,600)
   sensor_interval: int(10,600)
   dry_run: bool
+  trust_new_panel_ca: bool

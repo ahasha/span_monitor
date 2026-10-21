@@ -34,7 +34,8 @@ Required in a `.env` file:
 
 Optional: `SPAN_AUTH_CACHE` (default `~/.span_monitor_auth.json`; HA uses `/data/span_auth.json`),
 `MQTT_MAX_SILENCE` (seconds without any MQTT message before ticks fail, default 120),
-`SPAN_DRY_RUN=1` (log rows, insert nothing, no heartbeat ping).
+`SPAN_DRY_RUN=1` (log rows, insert nothing, no heartbeat ping),
+`SPAN_TRUST_NEW_CA=1` (re-pin the panel's CA cert once, after confirming a change is expected).
 
 ## Architecture
 
@@ -46,7 +47,9 @@ Optional: `SPAN_AUTH_CACHE` (default `~/.span_monitor_auth.json`; HA uses `/data
 5. Wraps network calls with `@retry_on_connection_error()` — capped linear backoff for network resilience
 
 **`span_auth.py`** — `GET /api/v2/status`, `POST /api/v2/auth/register` with the passphrase,
-CA-cert download. Caches the broker password (0600) so restarts don't register new clients.
+CA-cert download. Caches the broker password (0600) so restarts don't register new clients,
+and pins the CA cert (HTTP-only, so trusted once at registration). A changed CA is logged, never
+adopted, unless `SPAN_TRUST_NEW_CA=1`.
 
 **`span_mqtt.py`** — paho client (TLS to port 8883, auto-reconnect) subscribed to `ebus/5/#`.
 A rejected cached password clears the cache and exits the process so the restart re-registers.

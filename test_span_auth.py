@@ -153,3 +153,82 @@ def test_invalidate_removes_old_or_undated_credentials(tmp_path, mocker):
     assert invalidate(old, min_age_seconds=600) is True
     assert invalidate(undated, min_age_seconds=600) is True
     assert not old.exists() and not undated.exists()
+
+
+OTHER_PEM = "-----BEGIN CERTIFICATE-----\nOTHER\n-----END CERTIFICATE-----\n"
+
+
+def _serve_ca(http, pem):
+    get, _ = http
+    get.side_effect = lambda url, **kw: (_resp(200, {"serialNumber": "nt-0000-test0"})
+                                         if url.endswith("/api/v2/status") else _resp(200, text=pem))
+
+
+def test_registration_pins_ca_in_cache(tmp_path, http):
+    cache = tmp_path / "auth.json"
+    creds = load_or_register("10.0.0.5", "pass", cache)
+    assert json.loads(cache.read_text())["ca_pem"] == PEM
+    assert creds.ca_cert_path.read_text() == PEM
+
+
+def test_pinned_ca_is_used_even_if_panel_serves_a_different_one(tmp_path, http, caplog):
+    cache = tmp_path / "auth.json"
+    load_or_register("10.0.0.5", "pass", cache)
+    _serve_ca(http, OTHER_PEM)
+
+    creds = load_or_register("10.0.0.5", "pass", cache)
+
+    assert creds.ca_cert_path.read_text() == PEM
+    assert json.loads(cache.read_text())["ca_pem"] == PEM
+    assert "SPAN_TRUST_NEW_CA" in caplog.text
+
+
+def test_ca_comparison_failure_does_not_block_startup(tmp_path, http):
+    import requests
+    cache = tmp_path / "auth.json"
+    load_or_register("10.0.0.5", "pass", cache)
+    get, _ = http
+    get.side_effect = lambda url, **kw: (_resp(200, {"serialNumber": "nt-0000-test0"})
+                                         if url.endswith("/api/v2/status")
+                                         else (_ for _ in ()).throw(requests.exceptions.ConnectionError()))
+
+    creds = load_or_register("10.0.0.5", "pass", cache)
+
+    assert creds.ca_cert_path.read_text() == PEM
+
+
+def test_pinned_ca_file_is_rewritten_from_cache(tmp_path, http):
+    cache = tmp_path / "auth.json"
+    creds = load_or_register("10.0.0.5", "pass", cache)
+    creds.ca_cert_path.unlink()
+    _serve_ca(http, OTHER_PEM)
+
+    creds = load_or_register("10.0.0.5", "pass", cache)
+
+    assert creds.ca_cert_path.read_text() == PEM
+
+
+def test_legacy_cache_without_ca_pins_it_once(tmp_path, http):
+    _, post = http
+    cache = tmp_path / "auth.json"
+    cache.write_text(json.dumps({"serial_number": "nt-0000-test0", "broker_password": "pw", "mqtt_port": 8883}))
+
+    load_or_register("10.0.0.5", "pass", cache)
+
+    post.assert_not_called()
+    assert json.loads(cache.read_text())["ca_pem"] == PEM
+    assert json.loads(cache.read_text())["broker_password"] == "pw"
+
+
+def test_trust_new_ca_repins_without_registering(tmp_path, http):
+    _, post = http
+    cache = tmp_path / "auth.json"
+    load_or_register("10.0.0.5", "pass", cache)
+    post.reset_mock()
+    _serve_ca(http, OTHER_PEM)
+
+    creds = load_or_register("10.0.0.5", "pass", cache, trust_new_ca=True)
+
+    post.assert_not_called()
+    assert creds.ca_cert_path.read_text() == OTHER_PEM
+    assert json.loads(cache.read_text())["ca_pem"] == OTHER_PEM
