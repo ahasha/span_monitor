@@ -1,7 +1,8 @@
 # SPAN monitor
 
-A background service that polls a SPAN electrical panel every few seconds and
-logs energy data to Supabase (TimescaleDB).
+A background service that reads a SPAN electrical panel through the SPAN API
+(the panel's local MQTT broker) and logs energy data to Supabase (TimescaleDB)
+every few seconds.
 
 ## Two deployment paths — run only one at a time
 
@@ -33,7 +34,10 @@ See `DOCS.md` for the configuration reference and alerting setup.
 
 ### macOS
 
-Requires a `.env` with `SPAN_IP`, `SPAN_API_KEY`, `SUPABASE_URL`, `SUPABASE_KEY`.
+Requires a `.env` with `SPAN_IP`, `SPAN_PASSPHRASE`, `SUPABASE_URL`, `SUPABASE_KEY`.
+Credentials obtained from the panel are cached in `~/.span_monitor_auth.json`
+(override with `SPAN_AUTH_CACHE`). Set `SPAN_DRY_RUN=1` to log rows without
+inserting them.
 
 ```bash
 uv sync

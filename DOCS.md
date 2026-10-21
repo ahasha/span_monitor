@@ -1,14 +1,30 @@
 # SPAN Monitor
 
-Polls a SPAN electrical panel on the local network every few seconds and writes
-aggregate and per-circuit energy data to Supabase (TimescaleDB).
+Reads a SPAN electrical panel on the local network through the SPAN API (its
+local MQTT broker) and writes aggregate and per-circuit energy data to Supabase
+(TimescaleDB) every few seconds.
+
+## Upgrading to 2.0.0
+
+2.0.0 replaces SPAN's undocumented `/api/v1` REST API, which SPAN removes on
+2026-12-31, with the supported SPAN API. The `span_api_key` option is gone;
+set `span_passphrase` before starting 2.0.0. Find it in the SPAN Home app.
+On first start the app registers itself with the
+panel as a client named `span_monitor-<timestamp>` and caches the resulting
+credentials in `/data/span_auth.json`, so later restarts do not register again.
+
+A 2-pole circuit (e.g. one on spaces 5 and 7) is now stored as one
+`branch_energy` row under its lowest space (5) instead of one row per space.
+Sums over a circuit's spaces are unchanged. Columns with no SPAN API
+equivalent (`grid_sample_*_ms`, `dsm_*`, `current_run_config`,
+`measure_*`, `is_measure_valid`) are NULL from 2.0.0 on.
 
 ## Configuration
 
 | Option | Required | Description |
 |---|---|---|
 | `span_ip` | yes | Local IP address of the SPAN panel, e.g. `192.168.1.50` |
-| `span_api_key` | yes | Bearer token for the SPAN panel API |
+| `span_passphrase` | yes | The panel's SPAN API passphrase (`hopPassphrase`), from the SPAN Home app |
 | `supabase_url` | yes | Supabase project URL |
 | `supabase_key` | yes | Supabase service role key |
 | `healthcheck_url` | no | healthchecks.io ping URL. Leave blank to disable alerting. |
@@ -16,6 +32,7 @@ aggregate and per-circuit energy data to Supabase (TimescaleDB).
 | `stale_threshold` | no | Seconds without a successful write before the watchdog restarts the app (default 300) |
 | `heartbeat_interval` | no | Minimum seconds between heartbeat pings (default 60) |
 | `sensor_interval` | no | Minimum seconds between status sensor updates (default 30) |
+| `dry_run` | no | Log the rows each tick would write instead of inserting them (default off). Heartbeat pings are suppressed while on. |
 
 ## Alerting
 
@@ -42,11 +59,13 @@ also stalled.
 
 ## Security
 
-The four credentials (`span_api_key`, `supabase_url`, `supabase_key`,
+The four credentials (`span_passphrase`, `supabase_url`, `supabase_key`,
 `healthcheck_url`) are stored by Supervisor in `/data/options.json` in
-plaintext, and that file is included in Home Assistant backups. Backups are
-commonly synced to cloud storage or a NAS, so password-protect your Home
-Assistant backups accordingly.
+plaintext, and the SPAN broker password the app obtains with the passphrase is
+cached in `/data/span_auth.json`. Both files are included in Home Assistant
+backups, which are commonly synced to cloud storage or a NAS, so
+password-protect your Home Assistant backups accordingly. The passphrase
+grants full control of the panel, including switching circuits off.
 
 Using a Supabase key scoped to inserts on `main_energy` and `branch_energy`
 is strongly preferable to reusing the service-role key: the service-role key

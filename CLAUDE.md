@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-A background service that polls a SPAN electrical panel API every 5 seconds and logs energy data to Supabase (TimescaleDB backend). The `tesla-sdk/` subdirectory is a bundled OAuth2 SDK for Tesla's API, used for potential integration with Tesla energy products.
+A background service that reads a SPAN electrical panel through the SPAN API (its local MQTT/Homie broker) and logs energy data to Supabase (TimescaleDB backend) every 5 seconds. The `tesla-sdk/` subdirectory is a bundled OAuth2 SDK for Tesla's API, used for potential integration with Tesla energy products.
 
 ## Development Commands
 
@@ -28,18 +28,38 @@ uv run pytest
 
 Required in a `.env` file:
 - `SPAN_IP` — Local IP address of the SPAN panel
-- `SPAN_API_KEY` — API key for the SPAN panel
+- `SPAN_PASSPHRASE` — the panel's SPAN API passphrase (`hopPassphrase`, from the SPAN Home app)
 - `SUPABASE_URL` — Supabase project URL
 - `SUPABASE_KEY` — Supabase service role key
+
+Optional: `SPAN_AUTH_CACHE` (default `~/.span_monitor_auth.json`; HA uses `/data/span_auth.json`),
+`MQTT_MAX_SILENCE` (seconds without any MQTT message before ticks fail, default 120),
+`SPAN_DRY_RUN=1` (log rows, insert nothing, no heartbeat ping).
 
 ## Architecture
 
 **`main.py`** — the service entry point. It:
-1. Polls `http://{SPAN_IP}/api/v1/panel` every `POLL_INTERVAL` seconds (default 5)
-2. Extracts aggregate meter data and per-circuit (branch) data
+1. Registers with the panel once (`span_auth.py`) and starts the MQTT client (`span_mqtt.py`)
+2. Every `POLL_INTERVAL` seconds (default 5), turns the current `HomieSnapshot` into rows (`extract.py`)
 3. Inserts one row into `main_energy` and one row per circuit into `branch_energy`
-4. Counts a tick as successful only when the panel returned 200 **and** both inserts landed
-5. Wraps API calls with `@retry_on_connection_error()` — exponential backoff for network resilience
+4. Counts a tick as successful only when the snapshot was ready **and** both inserts landed
+5. Wraps network calls with `@retry_on_connection_error()` — capped linear backoff for network resilience
+
+**`span_auth.py`** — `GET /api/v2/status`, `POST /api/v2/auth/register` with the passphrase,
+CA-cert download. Caches the broker password (0600) so restarts don't register new clients.
+
+**`span_mqtt.py`** — paho client (TLS to port 8883, auto-reconnect) subscribed to `ebus/5/#`.
+A rejected cached password clears the cache and exits the process so the restart re-registers.
+
+**`homie.py`** — `HomieSnapshot`, a thread-safe last-known-value store. Since firmware r202639
+the panel does not republish unchanged values, so liveness comes from the connection, the
+panel's `$state`, and whether *any* message arrives, never from per-value age.
+
+**`extract.py`** — the v1-era column mapping (evidence in
+`docs/superpowers/plans/2026-10-21-span-api-mqtt-migration.md`). Each circuit is written once,
+under its lowest breaker space as `branch_id`; v1 wrote 2-pole circuits as one row per space.
+
+**`span_capture.py`** — one-shot LAN tool that captured `tests/fixtures/` (not shipped).
 
 **`health.py`** — `HealthState` (thread-safe record of time since the last successful
 write) and a `/healthz` endpoint on port 8099. Returns 503 once writes go stale, which
