@@ -1,5 +1,5 @@
 name: SPAN Monitor
-version: "1.0.0"
+version: "2.0.0"
 slug: span_monitor
 description: Polls a SPAN electrical panel and logs energy data to Supabase
 url: https://github.com/ahasha/span_monitor
@@ -16,7 +16,7 @@ ports_description:
   8099/tcp: Health endpoint (/healthz) used by the watchdog
 options:
   span_ip: ""
-  span_api_key: ""
+  span_passphrase: ""
   supabase_url: ""
   supabase_key: ""
   healthcheck_url: ""
@@ -24,9 +24,11 @@ options:
   stale_threshold: 300
   heartbeat_interval: 60
   sensor_interval: 30
+  dry_run: false
+  trust_new_panel_ca: false
 schema:
   span_ip: str
-  span_api_key: password
+  span_passphrase: password
   supabase_url: url
   supabase_key: password
   healthcheck_url: "str?"
@@ -34,3 +36,5 @@ schema:
   stale_threshold: int(60,3600)
   heartbeat_interval: int(10,600)
   sensor_interval: int(10,600)
+  dry_run: bool
+  trust_new_panel_ca: bool

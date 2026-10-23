@@ -16,11 +16,11 @@ WORKDIR /app
 
 # Dependencies first so edits to the monitor source do not invalidate this
 # layer. --no-default-groups excludes dev/tools/notebooks: the image gets
-# requests, httpx, python-dotenv and supabase, not the scientific stack.
+# requests, httpx, paho-mqtt, python-dotenv and supabase, not the scientific stack.
 COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-default-groups
 
-COPY main.py health.py notify.py ./
+COPY main.py health.py notify.py homie.py extract.py span_auth.py span_mqtt.py ./
 
 COPY addon-run.sh /addon-run.sh
 RUN chmod a+x /addon-run.sh
