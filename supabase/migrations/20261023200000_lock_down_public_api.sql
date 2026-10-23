@@ -9,12 +9,15 @@
 -- and notebooks connect directly as postgres.
 
 -- RLS with no policies: nothing is visible to anon/authenticated.
-ALTER TABLE public.main_energy ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.branch_energy ENABLE ROW LEVEL SECURITY;
+-- main_energy and branch_energy are compressed hypertables, and TimescaleDB
+-- rejects ENABLE ROW LEVEL SECURITY on those ("operation not supported on
+-- hypertables that have compression enabled"). The REVOKE below is what closes
+-- them; with no anon/authenticated grants the advisor stops flagging them too.
 ALTER TABLE public.branch_to_circuit ENABLE ROW LEVEL SECURITY;
 
--- The hourly continuous aggregates are views owned by postgres, so RLS on the
--- raw tables does not protect them. Revoking the grants is what closes them.
+-- Without table privileges Postgres denies access before RLS is consulted, so
+-- this protects the hypertables and the hourly continuous aggregates (views
+-- owned by postgres, which RLS on the raw tables would not cover anyway).
 REVOKE ALL ON TABLE
     public.main_energy,
     public.branch_energy,
@@ -28,8 +31,9 @@ ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public REVOKE ALL ON TABLES
 ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public REVOKE ALL ON SEQUENCES FROM anon, authenticated;
 ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public REVOKE ALL ON FUNCTIONS FROM anon, authenticated;
 
--- Clears the security_definer_view lint where TimescaleDB allows it. Continuous
--- aggregates may reject this; the REVOKE above already blocks access either way.
+-- Attempted for the security_definer_view lint. On 2026-10-23 TimescaleDB
+-- rejected it for both continuous aggregates (the NOTICE path); the lint cleared
+-- anyway once the REVOKE above removed anon/authenticated access.
 DO $$
 DECLARE
     v text;
