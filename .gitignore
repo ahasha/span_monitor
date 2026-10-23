@@ -5,3 +5,10 @@ nohup.out
 __pycache__/
 .vscode/
 .mcp.json
+
+# Claude Code: local settings and worktrees
+.claude/settings.local.json
+.claude/worktrees/
+
+# Dry-run output (contains per-circuit energy readings)
+dryrun.log
