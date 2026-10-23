@@ -12,3 +12,6 @@ __pycache__/
 
 # Dry-run output (contains per-circuit energy readings)
 dryrun.log
+
+# Local parquet/CSV backups from archive.py (energy readings)
+archive/
