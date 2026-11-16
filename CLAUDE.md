@@ -90,4 +90,7 @@ indefinitely; a monitor that can take down the service is worse than none.
   Running both at once doubles the rows per tick and corrupts the hourly aggregates.
 - `run.sh` is hardcoded to the local machine path — update if running elsewhere
 - `uv.lock` is committed; use `uv sync` not `pip install`
+- `.python-version` (3.13) must match the Home Assistant image's Python (`Dockerfile`
+  `FROM ...base-python:3.13`). 2.0.0 broke on deploy because local dev ran 3.11, where
+  urllib3 doesn't enable strict X.509 checking. Change both together.
 - The `scratch.ipynb` and `span.ipynb` notebooks are for ad-hoc analysis of the logged data

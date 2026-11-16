@@ -22,13 +22,17 @@ this repository into `/addons` on the Home Assistant host — the Studio Code
 Server or Advanced SSH app both give you a terminal there:
 
 ```bash
-git clone https://github.com/ahasha/span_monitor /addons/span-monitor
+git clone https://github.com/ahasha/span_monitor /addons/span_monitor
 ```
 
 Then **Settings → Apps → ⟳ refresh → Local apps → SPAN Monitor → Install**,
 fill in the configuration, and enable *Start on boot* and *Watchdog*.
 
-To update: `git pull` in that directory, then **Rebuild** on the app page.
+To update: make sure the checkout is on `main` (`git -C /addons/span_monitor
+status -sb`), `git pull`, then **Settings → Apps → App store → ⋮ → Check for
+updates** so Home Assistant sees the new version, and **Update** on the app
+page. The store refresh is refused while Supervisor reports the system
+unhealthy; `ha resolution info` shows why.
 
 See `DOCS.md` for the configuration reference and alerting setup.
 
