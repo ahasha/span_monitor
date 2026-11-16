@@ -1,5 +1,5 @@
 name: SPAN Monitor
-version: "2.0.0"
+version: "2.0.1"
 slug: span_monitor
 description: Polls a SPAN electrical panel and logs energy data to Supabase
 url: https://github.com/ahasha/span_monitor

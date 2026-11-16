@@ -25,8 +25,11 @@ def _resp(status, json_body=None, text=""):
 
 @pytest.fixture
 def http(mocker):
+    # Plain HTTP (the CA download) goes through requests.get; HTTPS through the
+    # pinned-CA helpers. One mock each, so call order and URLs stay inspectable.
     get = mocker.patch("span_auth.requests.get")
-    post = mocker.patch("span_auth.requests.post")
+    mocker.patch("span_auth._https_get", get)
+    post = mocker.patch("span_auth._https_post")
 
     def fake_get(url, **kw):
         if url.endswith("/api/v2/status"):
@@ -287,3 +290,113 @@ def test_tls_failure_during_registration_never_sends_passphrase(tmp_path, http):
     with pytest.raises(SpanAuthError):
         load_or_register("10.0.0.5", "pass", tmp_path / "auth.json")
     post.assert_not_called()
+
+
+# --- Real TLS against certificates shaped like the panel's ---------------------
+# SPAN's self-signed CA and server certificates carry no Authority/Subject Key
+# Identifier. Python 3.13 + urllib3 >= 2.3 turn on VERIFY_X509_STRICT, which
+# rejects them ("Missing Authority Key Identifier"); 2.0.0 failed exactly this
+# way on the Home Assistant image. These tests use a local HTTPS server.
+
+import datetime
+import ipaddress
+import ssl
+import sys
+import threading
+from http.server import BaseHTTPRequestHandler, HTTPServer
+
+from cryptography import x509
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography.x509.oid import NameOID
+
+
+def _name(cn):
+    return x509.Name([x509.NameAttribute(NameOID.ORGANIZATION_NAME, "SPAN.io"),
+                      x509.NameAttribute(NameOID.COMMON_NAME, cn)])
+
+
+def _panel_like_pki(tmp_path, ca_cn="nt-0000-test0 CA"):
+    """CA + server cert for 127.0.0.1 with no key identifiers, like the panel's."""
+    now = datetime.datetime.now(datetime.timezone.utc)
+    ca_key = ec.generate_private_key(ec.SECP256R1())
+    ca = (x509.CertificateBuilder().subject_name(_name(ca_cn)).issuer_name(_name(ca_cn))
+          .public_key(ca_key.public_key()).serial_number(x509.random_serial_number())
+          .not_valid_before(now - datetime.timedelta(days=1))
+          .not_valid_after(now + datetime.timedelta(days=30))
+          .add_extension(x509.BasicConstraints(ca=True, path_length=None), critical=True)
+          .add_extension(x509.KeyUsage(True, False, False, False, False, True, True, False, False),
+                         critical=True)
+          .sign(ca_key, hashes.SHA256()))
+    srv_key = ec.generate_private_key(ec.SECP256R1())
+    srv = (x509.CertificateBuilder().subject_name(_name("span-test.local")).issuer_name(ca.subject)
+           .public_key(srv_key.public_key()).serial_number(x509.random_serial_number())
+           .not_valid_before(now - datetime.timedelta(days=1))
+           .not_valid_after(now + datetime.timedelta(days=30))
+           .add_extension(x509.KeyUsage(True, False, True, False, False, False, False, False, False),
+                          critical=True)
+           .add_extension(x509.SubjectAlternativeName([x509.IPAddress(ipaddress.ip_address("127.0.0.1"))]),
+                          critical=False)
+           .sign(ca_key, hashes.SHA256()))
+    d = tmp_path / ca_cn.replace(" ", "_")
+    d.mkdir()
+    (d / "ca.pem").write_bytes(ca.public_bytes(serialization.Encoding.PEM))
+    (d / "srv.pem").write_bytes(srv.public_bytes(serialization.Encoding.PEM))
+    (d / "srv.key").write_bytes(srv_key.private_bytes(serialization.Encoding.PEM,
+                                                      serialization.PrivateFormat.PKCS8,
+                                                      serialization.NoEncryption()))
+    return d
+
+
+@pytest.fixture
+def panel_https(tmp_path):
+    d = _panel_like_pki(tmp_path)
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            body = json.dumps({"serialNumber": "nt-0000-test0"}).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *a):
+            pass
+
+    server = HTTPServer(("127.0.0.1", 0), Handler)
+    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    ctx.load_cert_chain(d / "srv.pem", d / "srv.key")
+    server.socket = ctx.wrap_socket(server.socket, server_side=True)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    yield f"127.0.0.1:{server.server_address[1]}", d / "ca.pem"
+    server.shutdown()
+
+
+@pytest.mark.skipif(sys.version_info < (3, 13), reason="urllib3 enables X509 strict mode on 3.13+")
+def test_plain_requests_rejects_panel_like_certs_on_py313(panel_https):
+    """Documents the failure 2.0.0 hit, so the test below proves something."""
+    import requests
+    host, ca = panel_https
+    with pytest.raises(requests.exceptions.SSLError, match="Key Identifier"):
+        requests.get(f"https://{host}/api/v2/status", verify=str(ca), timeout=5)
+
+
+def test_serial_check_accepts_panel_like_certs(panel_https):
+    host, ca = panel_https
+    assert span_auth._get_serial(host, ca) == "nt-0000-test0"
+
+
+def test_serial_check_still_rejects_a_different_ca(panel_https, tmp_path):
+    host, _ = panel_https
+    other = _panel_like_pki(tmp_path, ca_cn="impostor CA") / "ca.pem"
+    with pytest.raises(SpanAuthError, match="TLS verification"):
+        span_auth._get_serial(host, other)
+
+
+def test_panel_context_trusts_only_the_pinned_ca(tmp_path):
+    d = _panel_like_pki(tmp_path)
+    ctx = span_auth._panel_ssl_context(str(d / "ca.pem"))
+    assert ctx.verify_mode == ssl.CERT_REQUIRED and ctx.check_hostname
+    assert not ctx.verify_flags & ssl.VERIFY_X509_STRICT
+    assert len(ctx.get_ca_certs()) == 1

@@ -16,11 +16,13 @@ reported, never adopted, unless trust_new_ca is set.
 import json
 import logging
 import os
+import ssl
 import time
 from dataclasses import dataclass
 from pathlib import Path
 
 import requests
+from requests.adapters import HTTPAdapter
 
 logger = logging.getLogger(__name__)
 
@@ -48,9 +50,48 @@ TLS_FAILED = (
 )
 
 
+def _panel_ssl_context(ca_path: str) -> ssl.SSLContext:
+    """Verify the panel against the pinned CA only, without X.509 strict mode.
+
+    The panel's self-signed CA and server certificates have no Authority or
+    Subject Key Identifier. On Python 3.13+, urllib3 turns on
+    VERIFY_X509_STRICT, which rejects them ("Missing Authority Key
+    Identifier"). Strict mode only adds RFC 5280 profile checks; trust still
+    comes from the pinned CA alone, with hostname/IP checking.
+    """
+    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)  # CERT_REQUIRED + check_hostname
+    ctx.load_verify_locations(cafile=ca_path)       # no system CAs
+    ctx.verify_flags &= ~ssl.VERIFY_X509_STRICT
+    return ctx
+
+
+class _PanelTLSAdapter(HTTPAdapter):
+    def __init__(self, ca_path: str):
+        self._ssl_context = _panel_ssl_context(ca_path)  # before super(): it calls init_poolmanager
+        super().__init__()
+
+    def init_poolmanager(self, *args, **kwargs):
+        kwargs["ssl_context"] = self._ssl_context
+        return super().init_poolmanager(*args, **kwargs)
+
+
+def _https_request(method: str, url: str, *, verify: str, timeout: float, **kwargs):
+    with requests.Session() as s:
+        s.mount("https://", _PanelTLSAdapter(verify))
+        return s.request(method, url, verify=verify, timeout=timeout, **kwargs)
+
+
+def _https_get(url: str, **kwargs):
+    return _https_request("GET", url, **kwargs)
+
+
+def _https_post(url: str, **kwargs):
+    return _https_request("POST", url, **kwargs)
+
+
 def _get_serial(ip: str, ca_path: Path) -> str:
     try:
-        r = requests.get(f"https://{ip}/api/v2/status", verify=str(ca_path), timeout=TIMEOUT)
+        r = _https_get(f"https://{ip}/api/v2/status", verify=str(ca_path), timeout=TIMEOUT)
     except requests.exceptions.SSLError as e:
         # SSLError is a ConnectionError; left alone, the startup retry would
         # treat a CA mismatch as a network blip and retry forever.
@@ -92,8 +133,8 @@ def _register(ip: str, passphrase: str, ca_path: Path) -> dict:
             "description": "span_monitor energy logger",
             "hopPassphrase": passphrase}
     try:
-        r = requests.post(f"https://{ip}/api/v2/auth/register", json=body,
-                          verify=str(ca_path), timeout=TIMEOUT)
+        r = _https_post(f"https://{ip}/api/v2/auth/register", json=body,
+                        verify=str(ca_path), timeout=TIMEOUT)
     except requests.exceptions.SSLError as e:
         raise SpanAuthError(f"{TLS_FAILED} ({e})") from e
     if r.status_code != 200:
