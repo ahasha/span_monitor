@@ -7,44 +7,14 @@ from postgrest import APIError
 import main
 from main import (
     retry_on_connection_error,
-    get_span_response,
     insert_data,
     get_newest_row_time,
 )
+from test_extract import build
 
-# Sample test data
-@pytest.fixture
-def mock_span_data():
-    return {
-        'mainRelayState': True,
-        'mainMeterEnergy': {
-            'producedEnergyWh': 1000,
-            'consumedEnergyWh': 2000
-        },
-        'instantGridPowerW': 500,
-        'feedthroughPowerW': 300,
-        'feedthroughEnergy': {
-            'producedEnergyWh': 800,
-            'consumedEnergyWh': 1200
-        },
-        'gridSampleStartMs': 1000,
-        'gridSampleEndMs': 2000,
-        'dsmGridState': 'NORMAL',
-        'dsmState': 'ACTIVE',
-        'currentRunConfig': 'DEFAULT',
-        'branches': [
-            {
-                'id': 1,
-                'relayState': True,
-                'instantPowerW': 100,
-                'importedActiveEnergyWh': 500,
-                'exportedActiveEnergyWh': 200,
-                'measureStartTsMs': 1000,
-                'measureDurationMs': 1000,
-                'isMeasureValid': True
-            }
-        ]
-    }
+MAIN_ROW = {"time": "t", "relay_state": "CLOSED", "instant_grid_power_w": 500.0}
+BRANCH_ROWS = [{"time": "t", "branch_id": 5, "instant_power_w": -100.0}]
+
 
 def test_retry_decorator(mocker):
     mock_func = Mock(side_effect=[
@@ -94,25 +64,13 @@ def test_retry_decorator_recovers_from_httpx_transport_errors(mocker, exc):
     assert mock_func.call_count == 2
 
 
-def test_get_span_response():
-    mock_response = Mock()
-    mock_response.status_code = 200
-    mock_response.json.return_value = {"status": "ok"}
 
-    with patch('requests.get', return_value=mock_response):
-        response = get_span_response("http://test-url", headers={})
-
-    assert response.status_code == 200
-    assert response.json() == {"status": "ok"}
-
-
-def test_insert_data_success(mock_span_data):
+def test_insert_data_success():
     mock_supabase = Mock()
     mock_supabase.table.return_value.insert.return_value.execute.return_value = None
 
     # Test successful insertion
-    now = datetime.now(UTC).isoformat()
-    insert_data(mock_span_data, now, mock_supabase)
+    insert_data(MAIN_ROW, BRANCH_ROWS, mock_supabase)
 
     # Verify main_energy table insert was called
     mock_supabase.table.assert_any_call("main_energy")
@@ -120,7 +78,7 @@ def test_insert_data_success(mock_span_data):
     mock_supabase.table.assert_any_call("branch_energy")
 
 
-def test_insert_data_api_error(mock_span_data):
+def test_insert_data_api_error():
     mock_supabase = Mock()
     mock_supabase.table.return_value.insert.return_value.execute.side_effect = APIError(
         {
@@ -132,23 +90,21 @@ def test_insert_data_api_error(mock_span_data):
     )
 
     # Test handling of API error
-    now = datetime.now(UTC).isoformat()
     with patch('main.logger.error') as mock_logger_error:
-        assert insert_data(mock_span_data, now, mock_supabase) is False
+        assert insert_data(MAIN_ROW, BRANCH_ROWS, mock_supabase) is False
         mock_logger_error.assert_any_call(
-            "Error inserting data: {'message': 'Test error', 'code': 402, 'hint': 'Blah', 'details': 'blah'}"
+            "Error inserting main_energy: {'message': 'Test error', 'code': 402, 'hint': 'Blah', 'details': 'blah'}"
         )
 
 
-def test_insert_data_returns_true_on_success(mock_span_data):
+def test_insert_data_returns_true_on_success():
     mock_supabase = Mock()
     mock_supabase.table.return_value.insert.return_value.execute.return_value = None
 
-    now = datetime.now(UTC).isoformat()
-    assert insert_data(mock_span_data, now, mock_supabase) is True
+    assert insert_data(MAIN_ROW, BRANCH_ROWS, mock_supabase) is True
 
 
-def test_insert_data_returns_false_when_branch_insert_fails(mock_span_data):
+def test_insert_data_returns_false_when_branch_insert_fails():
     """Main succeeds, branches fail: a partial write is still a failed tick."""
     mock_supabase = Mock()
     error = APIError({"message": "boom", "code": 500, "hint": "", "details": ""})
@@ -157,11 +113,10 @@ def test_insert_data_returns_false_when_branch_insert_fails(mock_span_data):
         error,   # branch_energy fails
     ]
 
-    now = datetime.now(UTC).isoformat()
-    assert insert_data(mock_span_data, now, mock_supabase) is False
+    assert insert_data(MAIN_ROW, BRANCH_ROWS, mock_supabase) is False
 
 
-def test_insert_data_returns_false_when_main_insert_fails(mock_span_data):
+def test_insert_data_returns_false_when_main_insert_fails():
     mock_supabase = Mock()
     error = APIError({"message": "boom", "code": 500, "hint": "", "details": ""})
     mock_supabase.table.return_value.insert.return_value.execute.side_effect = [
@@ -169,22 +124,9 @@ def test_insert_data_returns_false_when_main_insert_fails(mock_span_data):
         None,    # branch_energy succeeds
     ]
 
-    now = datetime.now(UTC).isoformat()
-    assert insert_data(mock_span_data, now, mock_supabase) is False
+    assert insert_data(MAIN_ROW, BRANCH_ROWS, mock_supabase) is False
 
 
-def test_get_span_response_connection_error(mocker):
-    mocker.patch('time.sleep')
-    mock_response = Mock()
-    mock_response.status_code = 200
-    with patch('requests.get', side_effect=[
-        requests.exceptions.ConnectTimeout,
-        requests.exceptions.ConnectionError,
-        mock_response,
-    ]):
-        response = get_span_response("http://test-url", headers={})
-
-    assert response.status_code == 200
 
 from health import HealthState
 from notify import Throttle
@@ -206,67 +148,69 @@ def _always_ready():
     return Throttle(0.0, clock=FakeClock())
 
 
-def test_poll_once_records_success_and_pings(mocker, mock_span_data):
-    mocker.patch("main.get_span_response", return_value=Mock(status_code=200, json=Mock(return_value=mock_span_data)))
+def test_poll_once_records_success_and_pings(mocker):
     mocker.patch("main.insert_data", return_value=True)
     mock_ping = mocker.patch("main.ping_healthcheck", return_value=True)
     mocker.patch("main.publish_ha_sensor", return_value=True)
 
     state = HealthState(clock=FakeClock())
-    assert poll_once("http://x", {}, Mock(), state, _always_ready(), _always_ready(), "https://hc-ping.com/abc") is True
+    assert poll_once(build(), Mock(), state, _always_ready(), _always_ready(), "https://hc-ping.com/abc") is True
 
     assert state.is_healthy() is True
     mock_ping.assert_called_once_with("https://hc-ping.com/abc")
 
 
-def test_poll_once_failed_insert_records_failure_and_does_not_ping(mocker, mock_span_data):
+def test_poll_once_failed_insert_records_failure_and_does_not_ping(mocker):
     """The silent-failure case: SPAN answers 200 but nothing reaches the DB."""
-    mocker.patch("main.get_span_response", return_value=Mock(status_code=200, json=Mock(return_value=mock_span_data)))
     mocker.patch("main.insert_data", return_value=False)
     mock_ping = mocker.patch("main.ping_healthcheck")
     mocker.patch("main.publish_ha_sensor")
 
     state = HealthState(clock=FakeClock())
-    assert poll_once("http://x", {}, Mock(), state, _always_ready(), _always_ready(), "https://hc-ping.com/abc") is False
+    assert poll_once(build(), Mock(), state, _always_ready(), _always_ready(), "https://hc-ping.com/abc") is False
 
     assert state.is_healthy() is False
     assert state.snapshot()["consecutive_errors"] == 1
     mock_ping.assert_not_called()
 
 
-def test_poll_once_non_200_records_failure(mocker):
-    mocker.patch("main.get_span_response", return_value=Mock(status_code=503, text="unavailable"))
+def test_poll_once_unready_snapshot_records_failure(mocker):
+    """The panel or broker is unreachable: nothing is inserted, nothing pinged."""
+    mock_insert = mocker.patch("main.insert_data")
     mock_ping = mocker.patch("main.ping_healthcheck")
     mocker.patch("main.publish_ha_sensor")
+    snap = build()
+    snap.set_connected(False)
 
     state = HealthState(clock=FakeClock())
-    assert poll_once("http://x", {}, Mock(), state, _always_ready(), _always_ready(), None) is False
+    assert poll_once(snap, Mock(), state, _always_ready(), _always_ready(), None) is False
 
     assert state.snapshot()["consecutive_errors"] == 1
+    assert state.snapshot()["last_error"] == "SPAN snapshot not ready: not connected"
+    mock_insert.assert_not_called()
     mock_ping.assert_not_called()
 
 
 def test_poll_once_survives_unexpected_exceptions(mocker):
     """Nothing may escape a tick - the service must outlive any single error."""
-    mocker.patch("main.get_span_response", side_effect=ValueError("surprise"))
+    mocker.patch("main.snapshot_to_rows", side_effect=ValueError("surprise"))
     mocker.patch("main.publish_ha_sensor")
 
     state = HealthState(clock=FakeClock())
-    assert poll_once("http://x", {}, Mock(), state, _always_ready(), _always_ready(), None) is False
+    assert poll_once(build(), Mock(), state, _always_ready(), _always_ready(), None) is False
     assert state.snapshot()["consecutive_errors"] == 1
 
 
-def test_poll_once_survives_notification_failure(mocker, mock_span_data):
+def test_poll_once_survives_notification_failure(mocker):
     """Notification/publishing work happens after the tick already
     succeeded; a failure there must not escape poll_once or flip the
     verdict it already earned."""
-    mocker.patch("main.get_span_response", return_value=Mock(status_code=200, json=Mock(return_value=mock_span_data)))
     mocker.patch("main.insert_data", return_value=True)
     mocker.patch("main.ping_healthcheck", return_value=True)
     mocker.patch("main.publish_ha_sensor", side_effect=RuntimeError("boom"))
 
     state = HealthState(clock=FakeClock())
-    result = poll_once("http://x", {}, Mock(), state, _always_ready(), _always_ready(), "https://hc-ping.com/abc")
+    result = poll_once(build(), Mock(), state, _always_ready(), _always_ready(), "https://hc-ping.com/abc")
 
     assert result is True
     assert state.is_healthy() is True
@@ -311,8 +255,7 @@ def test_get_newest_row_time_returns_none_when_table_empty():
     assert get_newest_row_time(mock_supabase) is None
 
 
-def test_poll_once_clock_behind_floor_skips_insert_and_fails(mocker, mock_span_data):
-    mocker.patch("main.get_span_response", return_value=Mock(status_code=200, json=Mock(return_value=mock_span_data)))
+def test_poll_once_clock_behind_floor_skips_insert_and_fails(mocker):
     mock_insert = mocker.patch("main.insert_data")
     mocker.patch("main.publish_ha_sensor")
 
@@ -320,7 +263,7 @@ def test_poll_once_clock_behind_floor_skips_insert_and_fails(mocker, mock_span_d
     clock_floor = datetime.now(UTC) + timedelta(hours=3)
 
     result = poll_once(
-        "http://x", {}, Mock(), state, _always_ready(), _always_ready(), None,
+        build(), Mock(), state, _always_ready(), _always_ready(), None,
         clock_floor=clock_floor,
     )
 
@@ -330,8 +273,7 @@ def test_poll_once_clock_behind_floor_skips_insert_and_fails(mocker, mock_span_d
     assert state.snapshot()["last_error"] == "clock behind newest stored row"
 
 
-def test_poll_once_clock_after_floor_inserts_normally(mocker, mock_span_data):
-    mocker.patch("main.get_span_response", return_value=Mock(status_code=200, json=Mock(return_value=mock_span_data)))
+def test_poll_once_clock_after_floor_inserts_normally(mocker):
     mock_insert = mocker.patch("main.insert_data", return_value=True)
     mocker.patch("main.publish_ha_sensor")
 
@@ -339,7 +281,7 @@ def test_poll_once_clock_after_floor_inserts_normally(mocker, mock_span_data):
     clock_floor = datetime.now(UTC) - timedelta(hours=3)
 
     result = poll_once(
-        "http://x", {}, Mock(), state, _always_ready(), _always_ready(), None,
+        build(), Mock(), state, _always_ready(), _always_ready(), None,
         clock_floor=clock_floor,
     )
 
@@ -347,15 +289,14 @@ def test_poll_once_clock_after_floor_inserts_normally(mocker, mock_span_data):
     mock_insert.assert_called_once()
 
 
-def test_poll_once_clock_floor_none_disables_guard(mocker, mock_span_data):
-    mocker.patch("main.get_span_response", return_value=Mock(status_code=200, json=Mock(return_value=mock_span_data)))
+def test_poll_once_clock_floor_none_disables_guard(mocker):
     mock_insert = mocker.patch("main.insert_data", return_value=True)
     mocker.patch("main.publish_ha_sensor")
 
     state = HealthState(clock=FakeClock())
 
     result = poll_once(
-        "http://x", {}, Mock(), state, _always_ready(), _always_ready(), None,
+        build(), Mock(), state, _always_ready(), _always_ready(), None,
         clock_floor=None,
     )
 
@@ -363,8 +304,7 @@ def test_poll_once_clock_floor_none_disables_guard(mocker, mock_span_data):
     mock_insert.assert_called_once()
 
 
-def test_poll_once_respects_heartbeat_throttle(mocker, mock_span_data):
-    mocker.patch("main.get_span_response", return_value=Mock(status_code=200, json=Mock(return_value=mock_span_data)))
+def test_poll_once_respects_heartbeat_throttle(mocker):
     mocker.patch("main.insert_data", return_value=True)
     mock_ping = mocker.patch("main.ping_healthcheck")
     mocker.patch("main.publish_ha_sensor")
@@ -374,6 +314,66 @@ def test_poll_once_respects_heartbeat_throttle(mocker, mock_span_data):
     state = HealthState(clock=clock)
 
     for _ in range(3):
-        poll_once("http://x", {}, Mock(), state, heartbeat, _always_ready(), "https://hc-ping.com/abc")
+        poll_once(build(), Mock(), state, heartbeat, _always_ready(), "https://hc-ping.com/abc")
 
     assert mock_ping.call_count == 1
+
+
+def test_poll_once_inserts_snapshot_rows_with_one_timestamp(mocker):
+    mock_insert = mocker.patch("main.insert_data", return_value=True)
+    mocker.patch("main.publish_ha_sensor")
+
+    state = HealthState(clock=FakeClock())
+    assert poll_once(build(), Mock(), state, _always_ready(), _always_ready(), None) is True
+
+    main_row, branch_rows, _ = mock_insert.call_args.args
+    assert main_row["instant_grid_power_w"] == 850.5
+    assert [b["branch_id"] for b in branch_rows] == [5]
+    assert main_row["time"] == branch_rows[0]["time"]
+
+
+def test_poll_once_incomplete_snapshot_records_failure(mocker):
+    """Startup: the retained tree has not fully arrived. No partial row."""
+    mock_insert = mocker.patch("main.insert_data")
+    mocker.patch("main.publish_ha_sensor")
+
+    state = HealthState(clock=FakeClock())
+    assert poll_once(build(circuits={}), Mock(), state, _always_ready(), _always_ready(), None) is False
+
+    mock_insert.assert_not_called()
+    assert "circuit" in state.snapshot()["last_error"]
+
+
+def test_poll_once_dry_run_logs_and_does_not_insert(mocker, caplog):
+    mock_insert = mocker.patch("main.insert_data")
+    mocker.patch("main.publish_ha_sensor")
+    caplog.set_level("INFO")
+
+    state = HealthState(clock=FakeClock())
+    assert poll_once(build(), Mock(), state, _always_ready(), _always_ready(), None, dry_run=True) is True
+
+    mock_insert.assert_not_called()
+    assert "DRY RUN" in caplog.text
+    # Every circuit row is logged, so the mapping can be checked by eye.
+    assert "DRY RUN branch 5: relay=CLOSED power_w=-500.0 imported_wh=1.5 exported_wh=9000.25" in caplog.text
+
+
+def test_insert_data_inserts_prebuilt_rows():
+    mock_supabase = Mock()
+    assert insert_data(MAIN_ROW, BRANCH_ROWS, mock_supabase) is True
+    mock_supabase.table.return_value.insert.assert_any_call(MAIN_ROW)
+    mock_supabase.table.return_value.insert.assert_any_call(BRANCH_ROWS)
+
+
+def test_poll_once_dry_run_does_not_ping_heartbeat(mocker):
+    """A dry run writes nothing, so it must not tell the dead-man switch
+    that data is landing."""
+    mocker.patch("main.insert_data")
+    mock_ping = mocker.patch("main.ping_healthcheck")
+    mocker.patch("main.publish_ha_sensor")
+
+    state = HealthState(clock=FakeClock())
+    poll_once(build(), Mock(), state, _always_ready(), _always_ready(),
+              "https://hc-ping.com/abc", dry_run=True)
+
+    mock_ping.assert_not_called()

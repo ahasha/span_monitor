@@ -7,7 +7,10 @@
 set -e
 
 export SPAN_IP="$(bashio::config 'span_ip')"
-export SPAN_API_KEY="$(bashio::config 'span_api_key')"
+export SPAN_PASSPHRASE="$(bashio::config 'span_passphrase')"
+# /data persists across restarts and upgrades, so the panel registration
+# happens once rather than on every container start.
+export SPAN_AUTH_CACHE="/data/span_auth.json"
 export SUPABASE_URL="$(bashio::config 'supabase_url')"
 export SUPABASE_KEY="$(bashio::config 'supabase_key')"
 export POLL_INTERVAL="$(bashio::config 'poll_interval')"
@@ -15,6 +18,16 @@ export STALE_THRESHOLD="$(bashio::config 'stale_threshold')"
 export HEARTBEAT_INTERVAL="$(bashio::config 'heartbeat_interval')"
 export SENSOR_INTERVAL="$(bashio::config 'sensor_interval')"
 export HEALTH_PORT="8099"
+
+if bashio::config.true 'dry_run'; then
+    export SPAN_DRY_RUN=1
+    bashio::log.warning "Dry run: rows will be logged, not inserted"
+fi
+
+if bashio::config.true 'trust_new_panel_ca'; then
+    export SPAN_TRUST_NEW_CA=1
+    bashio::log.warning "Pinning the panel's current CA certificate; turn trust_new_panel_ca off again afterwards"
+fi
 
 # Optional: no URL means no heartbeat, and ping_healthcheck no-ops.
 if bashio::config.has_value 'healthcheck_url'; then
@@ -25,7 +38,7 @@ else
 fi
 
 # Fail fast and legibly rather than letting Python raise on a None URL.
-for required in span_ip span_api_key supabase_url supabase_key; do
+for required in span_ip span_passphrase supabase_url supabase_key; do
     if ! bashio::config.has_value "${required}"; then
         bashio::exit.nok "Required option '${required}' is not set"
     fi

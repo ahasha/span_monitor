@@ -1,0 +1,340 @@
+{
+  "mainRelayState": "CLOSED",
+  "mainMeterEnergy": {
+    "producedEnergyWh": 0.11922162398695946,
+    "consumedEnergyWh": 10959377.0
+  },
+  "instantGridPowerW": 1244.9617919921875,
+  "feedthroughPowerW": 16.647250877693295,
+  "feedthroughEnergy": {
+    "producedEnergyWh": 10890975.952906672,
+    "consumedEnergyWh": 10948657.980653645
+  },
+  "gridSampleStartMs": 18587723,
+  "gridSampleEndMs": 18587749,
+  "dsmGridState": "DSM_GRID_UP",
+  "dsmState": "DSM_ON_GRID",
+  "currentRunConfig": "PANEL_ON_GRID",
+  "branches": [
+    {
+      "id": 1,
+      "relayState": "CLOSED",
+      "instantPowerW": 1.4969656467437744,
+      "importedActiveEnergyWh": 1739.8812255859375,
+      "exportedActiveEnergyWh": 200.42750549316406,
+      "measureStartTsMs": 18587191,
+      "measureDurationMs": 22,
+      "isMeasureValid": true
+    },
+    {
+      "id": 2,
+      "relayState": "CLOSED",
+      "instantPowerW": -0.22734291851520538,
+      "importedActiveEnergyWh": 14.114936828613281,
+      "exportedActiveEnergyWh": 1190577.25,
+      "measureStartTsMs": 18587191,
+      "measureDurationMs": 22,
+      "isMeasureValid": true
+    },
+    {
+      "id": 3,
+      "relayState": "CLOSED",
+      "instantPowerW": 0.6059563159942627,
+      "importedActiveEnergyWh": 556.82421875,
+      "exportedActiveEnergyWh": 1695.619873046875,
+      "measureStartTsMs": 18587213,
+      "measureDurationMs": 24,
+      "isMeasureValid": true
+    },
+    {
+      "id": 4,
+      "relayState": "CLOSED",
+      "instantPowerW": -1.3964101076126099,
+      "importedActiveEnergyWh": 112.8318862915039,
+      "exportedActiveEnergyWh": 1189308.875,
+      "measureStartTsMs": 18587213,
+      "measureDurationMs": 24,
+      "isMeasureValid": true
+    },
+    {
+      "id": 5,
+      "relayState": "CLOSED",
+      "instantPowerW": -417.9078674316406,
+      "importedActiveEnergyWh": 82.96577453613281,
+      "exportedActiveEnergyWh": 1298686.375,
+      "measureStartTsMs": 18587237,
+      "measureDurationMs": 28,
+      "isMeasureValid": true
+    },
+    {
+      "id": 6,
+      "relayState": "CLOSED",
+      "instantPowerW": 1.4742313623428345,
+      "importedActiveEnergyWh": 2239.77783203125,
+      "exportedActiveEnergyWh": 878498.25,
+      "measureStartTsMs": 18587237,
+      "measureDurationMs": 28,
+      "isMeasureValid": true
+    },
+    {
+      "id": 7,
+      "relayState": "CLOSED",
+      "instantPowerW": -416.3470764160156,
+      "importedActiveEnergyWh": 7.44516134262085,
+      "exportedActiveEnergyWh": 1294439.75,
+      "measureStartTsMs": 18587265,
+      "measureDurationMs": 26,
+      "isMeasureValid": true
+    },
+    {
+      "id": 8,
+      "relayState": "CLOSED",
+      "instantPowerW": -0.36637184023857117,
+      "importedActiveEnergyWh": 1305.3839111328125,
+      "exportedActiveEnergyWh": 876338.25,
+      "measureStartTsMs": 18587265,
+      "measureDurationMs": 26,
+      "isMeasureValid": true
+    },
+    {
+      "id": 9,
+      "relayState": "CLOSED",
+      "instantPowerW": 0.8953813314437866,
+      "importedActiveEnergyWh": 2192.79443359375,
+      "exportedActiveEnergyWh": 183820.484375,
+      "measureStartTsMs": 18587291,
+      "measureDurationMs": 22,
+      "isMeasureValid": true
+    },
+    {
+      "id": 10,
+      "relayState": "CLOSED",
+      "instantPowerW": -1.8047529458999634,
+      "importedActiveEnergyWh": 11.85241985321045,
+      "exportedActiveEnergyWh": 14021.408203125,
+      "measureStartTsMs": 18587291,
+      "measureDurationMs": 22,
+      "isMeasureValid": true
+    },
+    {
+      "id": 11,
+      "relayState": "CLOSED",
+      "instantPowerW": -0.7379900813102722,
+      "importedActiveEnergyWh": 73.93515014648438,
+      "exportedActiveEnergyWh": 176214.375,
+      "measureStartTsMs": 18587313,
+      "measureDurationMs": 24,
+      "isMeasureValid": true
+    },
+    {
+      "id": 12,
+      "relayState": "CLOSED",
+      "instantPowerW": -5.7736358642578125,
+      "importedActiveEnergyWh": 77.00263977050781,
+      "exportedActiveEnergyWh": 48666.58984375,
+      "measureStartTsMs": 18587313,
+      "measureDurationMs": 24,
+      "isMeasureValid": true
+    },
+    {
+      "id": 13,
+      "relayState": "CLOSED",
+      "instantPowerW": -2.6861438751220703,
+      "importedActiveEnergyWh": 2.8922483921051025,
+      "exportedActiveEnergyWh": 246502.328125,
+      "measureStartTsMs": 18587337,
+      "measureDurationMs": 22,
+      "isMeasureValid": true
+    },
+    {
+      "id": 14,
+      "relayState": "CLOSED",
+      "instantPowerW": -127.28230285644531,
+      "importedActiveEnergyWh": 2.931674003601074,
+      "exportedActiveEnergyWh": 674892.875,
+      "measureStartTsMs": 18587337,
+      "measureDurationMs": 22,
+      "isMeasureValid": true
+    },
+    {
+      "id": 15,
+      "relayState": "CLOSED",
+      "instantPowerW": -0.10230430960655212,
+      "importedActiveEnergyWh": 305.8739929199219,
+      "exportedActiveEnergyWh": 190868.03125,
+      "measureStartTsMs": 18587359,
+      "measureDurationMs": 27,
+      "isMeasureValid": true
+    },
+    {
+      "id": 16,
+      "relayState": "CLOSED",
+      "instantPowerW": -3.6724624633789062,
+      "importedActiveEnergyWh": 0.015925148501992226,
+      "exportedActiveEnergyWh": 116728.640625,
+      "measureStartTsMs": 18587359,
+      "measureDurationMs": 27,
+      "isMeasureValid": true
+    },
+    {
+      "id": 17,
+      "relayState": "CLOSED",
+      "instantPowerW": -7.267103672027588,
+      "importedActiveEnergyWh": 31.40935516357422,
+      "exportedActiveEnergyWh": 148557.234375,
+      "measureStartTsMs": 18587387,
+      "measureDurationMs": 25,
+      "isMeasureValid": true
+    },
+    {
+      "id": 18,
+      "relayState": "CLOSED",
+      "instantPowerW": -7.537292003631592,
+      "importedActiveEnergyWh": 134.93362426757812,
+      "exportedActiveEnergyWh": 217816.609375,
+      "measureStartTsMs": 18587387,
+      "measureDurationMs": 25,
+      "isMeasureValid": true
+    },
+    {
+      "id": 19,
+      "relayState": "CLOSED",
+      "instantPowerW": -0.9452219009399414,
+      "importedActiveEnergyWh": 168.17095947265625,
+      "exportedActiveEnergyWh": 11471.3037109375,
+      "measureStartTsMs": 18587412,
+      "measureDurationMs": 23,
+      "isMeasureValid": true
+    },
+    {
+      "id": 20,
+      "relayState": "CLOSED",
+      "instantPowerW": -48.209815979003906,
+      "importedActiveEnergyWh": 80.83889770507812,
+      "exportedActiveEnergyWh": 407375.875,
+      "measureStartTsMs": 18587412,
+      "measureDurationMs": 23,
+      "isMeasureValid": true
+    },
+    {
+      "id": 21,
+      "relayState": "CLOSED",
+      "instantPowerW": -8.818282127380371,
+      "importedActiveEnergyWh": 0.44404295086860657,
+      "exportedActiveEnergyWh": 42986.40625,
+      "measureStartTsMs": 18587435,
+      "measureDurationMs": 22,
+      "isMeasureValid": true
+    },
+    {
+      "id": 22,
+      "relayState": "CLOSED",
+      "instantPowerW": 0.00786956213414669,
+      "importedActiveEnergyWh": 489.6793212890625,
+      "exportedActiveEnergyWh": 14409.921875,
+      "measureStartTsMs": 18587435,
+      "measureDurationMs": 22,
+      "isMeasureValid": true
+    },
+    {
+      "id": 23,
+      "relayState": "CLOSED",
+      "instantPowerW": -9.039504051208496,
+      "importedActiveEnergyWh": 146.34652709960938,
+      "exportedActiveEnergyWh": 47545.9453125,
+      "measureStartTsMs": 18587457,
+      "measureDurationMs": 23,
+      "isMeasureValid": true
+    },
+    {
+      "id": 24,
+      "relayState": "CLOSED",
+      "instantPowerW": -85.1504135131836,
+      "importedActiveEnergyWh": 57.20344924926758,
+      "exportedActiveEnergyWh": 267720.71875,
+      "measureStartTsMs": 18587457,
+      "measureDurationMs": 23,
+      "isMeasureValid": true
+    },
+    {
+      "id": 25,
+      "relayState": "CLOSED",
+      "instantPowerW": -40.77395248413086,
+      "importedActiveEnergyWh": 0.18818306922912598,
+      "exportedActiveEnergyWh": 383148.21875,
+      "measureStartTsMs": 18587480,
+      "measureDurationMs": 30,
+      "isMeasureValid": true
+    },
+    {
+      "id": 26,
+      "relayState": "CLOSED",
+      "instantPowerW": -2.727240562438965,
+      "importedActiveEnergyWh": 0.060034383088350296,
+      "exportedActiveEnergyWh": 74396.4453125,
+      "measureStartTsMs": 18587480,
+      "measureDurationMs": 30,
+      "isMeasureValid": true
+    },
+    {
+      "id": 27,
+      "relayState": "CLOSED",
+      "instantPowerW": -4.4034576416015625,
+      "importedActiveEnergyWh": 30.2863712310791,
+      "exportedActiveEnergyWh": 564763.0,
+      "measureStartTsMs": 18587557,
+      "measureDurationMs": 23,
+      "isMeasureValid": true
+    },
+    {
+      "id": 28,
+      "relayState": "CLOSED",
+      "instantPowerW": -8.016461372375488,
+      "importedActiveEnergyWh": 78.47566223144531,
+      "exportedActiveEnergyWh": 286548.125,
+      "measureStartTsMs": 18587557,
+      "measureDurationMs": 23,
+      "isMeasureValid": true
+    },
+    {
+      "id": 29,
+      "relayState": "CLOSED",
+      "instantPowerW": -0.23521247506141663,
+      "importedActiveEnergyWh": 88.90126037597656,
+      "exportedActiveEnergyWh": 10533.91796875,
+      "measureStartTsMs": 18587580,
+      "measureDurationMs": 23,
+      "isMeasureValid": true
+    },
+    {
+      "id": 30,
+      "relayState": "CLOSED",
+      "instantPowerW": -30.394872665405273,
+      "importedActiveEnergyWh": 84.53134155273438,
+      "exportedActiveEnergyWh": 23259.51953125,
+      "measureStartTsMs": 18587580,
+      "measureDurationMs": 23,
+      "isMeasureValid": true
+    },
+    {
+      "id": 31,
+      "relayState": "CLOSED",
+      "instantPowerW": -0.9207388162612915,
+      "importedActiveEnergyWh": 91.16415405273438,
+      "exportedActiveEnergyWh": 8722.1455078125,
+      "measureStartTsMs": 18587603,
+      "measureDurationMs": 28,
+      "isMeasureValid": true
+    },
+    {
+      "id": 32,
+      "relayState": "CLOSED",
+      "instantPowerW": -0.05071495845913887,
+      "importedActiveEnergyWh": 509.86273193359375,
+      "exportedActiveEnergyWh": 261.1556091308594,
+      "measureStartTsMs": 18587603,
+      "measureDurationMs": 28,
+      "isMeasureValid": true
+    }
+  ]
+}
